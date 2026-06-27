@@ -1,0 +1,22 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Local config with secrets (never commit real connection strings)
+**/appsettings.Local.json
+**/appsettings.Production.json
+
+# Local cache DB (generated at runtime)
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+Thumbs.db
+.DS_Store
+
+# OMC
+.omc/
