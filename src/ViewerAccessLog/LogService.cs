@@ -107,7 +107,7 @@ public sealed class LogService(ILogSource source)
 
         // B1: 操作種別内訳（全ソース対象）
         var actionBreakdown = inRange
-            .GroupBy(r => r.Kind.ToString())
+            .GroupBy(r => KindLabel(r.Kind))
             .Select(g => new NameCount(g.Key, g.Count()))
             .OrderByDescending(x => x.Count)
             .ToList();
@@ -154,7 +154,7 @@ public sealed class LogService(ILogSource source)
 
         // B2: 操作種別内訳
         var actionBreakdown = rows
-            .GroupBy(r => r.Kind.ToString())
+            .GroupBy(r => KindLabel(r.Kind))
             .Select(g => new NameCount(g.Key, g.Count()))
             .OrderByDescending(x => x.Count)
             .ToList();
@@ -218,6 +218,18 @@ public sealed class LogService(ILogSource source)
 
         return rows;
     }
+
+    /// <summary>操作種別の日本語ラベル（内訳の表示用）。</summary>
+    private static string KindLabel(ActionKind k) => k switch
+    {
+        ActionKind.Read => "閲覧/読取",
+        ActionKind.Write => "編集",
+        ActionKind.Delete => "削除",
+        ActionKind.Copy => "コピー疑い",
+        ActionKind.Login => "ログイン",
+        ActionKind.Search => "検索",
+        _ => k.ToString(),
+    };
 
     private static bool InGap(DateTimeOffset t, IReadOnlyList<GapWindow> gaps)
         => gaps.Any(g => t >= g.Start && t < g.End);
