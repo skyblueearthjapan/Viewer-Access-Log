@@ -8,14 +8,34 @@ public sealed class LogService(ILogSource source)
 {
     public LogPage Search(LogQuery q)
     {
-        var rows = Filtered(q, applySourceKind: true)
-            .OrderByDescending(r => r.Time)
-            .ToList();
+        var filtered = Filtered(q, applySourceKind: true).ToList();
+
+        // ソート列とソート方向。既定は日時降順。
+        var rows = q.Sort?.ToLowerInvariant() switch
+        {
+            "user" => q.Desc ? filtered.OrderByDescending(r => r.User).ToList() : filtered.OrderBy(r => r.User).ToList(),
+            "dept" => q.Desc ? filtered.OrderByDescending(r => r.Dept).ToList() : filtered.OrderBy(r => r.Dept).ToList(),
+            "kind" => q.Desc ? filtered.OrderByDescending(r => r.Kind).ToList() : filtered.OrderBy(r => r.Kind).ToList(),
+            _      => q.Desc ? filtered.OrderByDescending(r => r.Time).ToList() : filtered.OrderBy(r => r.Time).ToList(),
+        };
 
         var page = Math.Max(1, q.Page);
         var size = Math.Clamp(q.PageSize, 1, 500);
         var slice = rows.Skip((page - 1) * size).Take(size).ToList();
         return new LogPage(rows.Count, page, size, slice);
+    }
+
+    /// <summary>CSV用：ページングなし全件取得（上限 50000 行）。</summary>
+    public IReadOnlyList<AccessRow> SearchAll(LogQuery q)
+    {
+        var filtered = Filtered(q, applySourceKind: true).ToList();
+        return (q.Sort?.ToLowerInvariant() switch
+        {
+            "user" => q.Desc ? filtered.OrderByDescending(r => r.User) : (IEnumerable<AccessRow>)filtered.OrderBy(r => r.User),
+            "dept" => q.Desc ? filtered.OrderByDescending(r => r.Dept) : (IEnumerable<AccessRow>)filtered.OrderBy(r => r.Dept),
+            "kind" => q.Desc ? filtered.OrderByDescending(r => r.Kind) : (IEnumerable<AccessRow>)filtered.OrderBy(r => r.Kind),
+            _      => q.Desc ? filtered.OrderByDescending(r => r.Time) : (IEnumerable<AccessRow>)filtered.OrderBy(r => r.Time),
+        }).Take(50000).ToList();
     }
 
     /// <summary>KPI集計。期間/ユーザー/検索語は効かせるが、ソース・操作トグルは無視して全体像を出す。</summary>

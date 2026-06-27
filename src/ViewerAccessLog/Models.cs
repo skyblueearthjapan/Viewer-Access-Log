@@ -37,7 +37,9 @@ public record LogQuery(
     string? Q,
     int Page = 1,
     int PageSize = 50,
-    string? Dept = null);
+    string? Dept = null,
+    string? Sort = null,    // time / user / dept / kind（既定 time）
+    bool Desc = true);      // true=降順（既定）/ false=昇順
 
 public record LogPage(long Total, int Page, int PageSize, IReadOnlyList<AccessRow> Rows);
 

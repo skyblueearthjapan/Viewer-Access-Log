@@ -128,3 +128,47 @@ tr.clickable{cursor:pointer;} tr.clickable:hover{background:var(--primary-light)
 .tl.v{border-left-color:var(--viewer);} .tl.d{border-left-color:var(--direct);background:#fff8f4;} .tl.u{border-left-color:var(--unknown);background:#fafafa;}
 .tl-t{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .tl-f{flex:1;min-width:160px;}
+
+/* ---- P1c: 期間バー ---- */
+.period-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 14px;}
+.period-bar .t{font-weight:600;color:var(--primary-dark);font-size:13px;white-space:nowrap;}
+.period-bar input[type=date]{padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;}
+.pb-sep{color:var(--muted);}
+.qbtn{background:var(--primary-light);color:var(--primary-dark);border:1px solid var(--primary);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap;}
+.qbtn:hover{background:var(--primary);color:#fff;}
+
+/* ---- P1c: テーブルソート（機能③） ---- */
+th.sortable{cursor:pointer;user-select:none;}
+th.sortable:hover{background:#f0f4fa;}
+.sort-ind{font-size:10px;margin-left:3px;color:var(--muted);}
+.sort-ind.sort-active{color:var(--primary);font-weight:700;}
+
+/* ---- P1c: ログ行クリック ---- */
+tr.clickrow{cursor:pointer;}
+tr.clickrow:hover td{background:rgba(26,95,180,.05);}
+
+/* ---- P1c: CSV ボタン ---- */
+.csv-btn{background:#e6f4ea;color:var(--green);border-color:#b6dcc0;font-weight:600;}
+.csv-btn:hover{background:var(--green);color:#fff;}
+
+/* ---- P1c: 詳細スライドインパネル（機能②） ---- */
+.dp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:100;opacity:0;pointer-events:none;transition:opacity .2s;}
+.dp-overlay.open{opacity:1;pointer-events:auto;}
+.dp-panel{position:fixed;top:0;right:-440px;width:420px;height:100vh;background:#fff;z-index:101;
+  box-shadow:-4px 0 28px rgba(0,0,0,.18);transition:right .22s ease;overflow-y:auto;display:flex;flex-direction:column;}
+.dp-panel.open{right:0;}
+.dp-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;
+  border-bottom:1px solid var(--border);background:var(--primary);color:#fff;flex-shrink:0;}
+.dp-title{font-weight:700;font-size:15px;}
+.dp-close{background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1;padding:0 4px;}
+.dp-close:hover{opacity:.8;}
+.dp-body{padding:14px 18px;flex:1;font-size:13px;}
+.dp-row{display:flex;flex-direction:column;gap:3px;padding:9px 0;border-bottom:1px solid var(--border);}
+.dp-row:last-child{border-bottom:none;}
+.dp-label{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
+.dp-val{word-break:break-all;line-height:1.5;}
+.dp-val.file{font-family:Consolas,monospace;font-size:12px;}
+
+/* ---- P1c: ダッシュボード ドリルダウン ---- */
+.kpi.clickable{cursor:pointer;transition:box-shadow .15s;}
+.kpi.clickable:hover{box-shadow:0 0 0 2px var(--primary);}
