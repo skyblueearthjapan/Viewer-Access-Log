@@ -17,6 +17,7 @@ public record AccessRow(
     DateTimeOffset Time,
     SourceKind Source,
     string User,
+    string Dept,
     string Action,
     ActionKind Kind,
     string? File,
@@ -35,7 +36,8 @@ public record LogQuery(
     string[]? Kinds,
     string? Q,
     int Page = 1,
-    int PageSize = 50);
+    int PageSize = 50,
+    string? Dept = null);
 
 public record LogPage(long Total, int Page, int PageSize, IReadOnlyList<AccessRow> Rows);
 
@@ -52,12 +54,74 @@ public record Summary(
 
 public record GapWindow(DateTimeOffset Start, DateTimeOffset End, string Reason);
 
+/// <summary>収集エンジン（コレクター）の稼働状態。サーバー状態画面で表示。</summary>
+public record CollectorState(
+    string Server,
+    string Channel,
+    DateTimeOffset LastEvent,
+    int LagSeconds,
+    string Status);
+
 public record HealthInfo(
     string DataMode,
     DateTimeOffset? LastSync,
     int LagSeconds,
     DateTimeOffset? AuditLatestEvent,
-    IReadOnlyList<GapWindow> Gaps);
+    IReadOnlyList<GapWindow> Gaps,
+    IReadOnlyList<CollectorState> Collectors);
+
+/// <summary>アラート1件（ルール検知）。状態変更はP4で書込予定・今は閲覧のみ。</summary>
+public record AlertItem(
+    long Id,
+    DateTimeOffset Time,
+    string Severity,   // High / Medium / Low
+    string Rule,
+    string User,
+    long Count,
+    string Status);
+
+/// <summary>検知インシデント（大量持ち出し / 部署外アクセス 等）。</summary>
+public record IncidentItem(
+    long Id,
+    DateTimeOffset Time,
+    string Type,       // BULK_CONTENT_READ / CROSS_DEPT_ACCESS 等
+    string Severity,   // High / Medium / Low
+    string User,
+    long MatchCount,
+    string Metric,
+    string Status);
+
+/// <summary>ユーザー別一覧の1行（青/赤/灰を横断表示）。</summary>
+public record UserRow(
+    string User,
+    string Dept,
+    long Viewer,
+    long Direct,
+    long Unknown,
+    DateTimeOffset LastAccess);
+
+/// <summary>ユーザー詳細（ソース別サマリ＋時系列タイムライン）。</summary>
+public record UserDetail(
+    string User,
+    string Dept,
+    long Viewer,
+    long Direct,
+    long Unknown,
+    IReadOnlyList<AccessRow> Timeline);
+
+/// <summary>時間帯別スタック棒の1点（時×3色）。</summary>
+public record HourPoint(int Hour, long Viewer, long Direct, long Unknown);
+
+/// <summary>名前×件数（Topユーザー・部署別件数の横棒用）。</summary>
+public record NameCount(string Name, long Count);
+
+/// <summary>ダッシュボード一括取得（KPI＋各グラフ＋直近インシデント）。</summary>
+public record DashboardData(
+    Summary Summary,
+    IReadOnlyList<HourPoint> Hourly,
+    IReadOnlyList<NameCount> DirectTopUsers,
+    IReadOnlyList<NameCount> DeptCounts,
+    IReadOnlyList<IncidentItem> RecentIncidents);
 
 /// <summary>
 /// ログ取得元の抽象。今は SampleLogSource（サンプル）。
@@ -69,4 +133,7 @@ public interface ILogSource
     IReadOnlyList<GapWindow> Gaps();
     DateTimeOffset? LastSync();
     DateTimeOffset? AuditLatestEvent();
+    IReadOnlyList<AlertItem> Alerts();
+    IReadOnlyList<IncidentItem> Incidents();
+    IReadOnlyList<CollectorState> Collectors();
 }

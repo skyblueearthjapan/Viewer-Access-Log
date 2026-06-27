@@ -2,68 +2,204 @@ namespace ViewerAccessLog;
 
 /// <summary>
 /// サンプルデータ源（DataMode=Sample）。サーバー未接続の自宅でも 3色UI を動かすための種データ。
-/// 日付は固定（2026-06-27）で決め打ち＝毎回同じ画面になる。
+/// 日付は固定（2026-06-27）で決め打ち＝毎回同じ画面になる（Random / DateTime.Now を判定に使わない）。
+/// 全部署（技術部/営業部/総務部/製造部/購買部/部署間共通/郵便局）を網羅し、各画面に3色を通す。
 /// 本番では SfeSqliteSource + AuditPgSource + 同期キャッシュに差し替える。
 /// </summary>
 public sealed class SampleLogSource : ILogSource
 {
     private static readonly DateTimeOffset Day = new(2026, 6, 27, 0, 0, 0, TimeSpan.FromHours(9));
-    private static readonly TimeSpan Jst = TimeSpan.FromHours(9);
 
-    private const string Base = @"\\lineworks-sv\Data\技術部\機械設計";
+    private const string Root = @"\\lineworks-sv\Data";
 
     private readonly List<AccessRow> _rows = Build();
+
     private readonly List<GapWindow> _gaps = new()
     {
         // 監査が止まっていた区間。利用率の分母から除外する対象（DESIGN.md §6）。
         new GapWindow(Day.AddHours(2).AddMinutes(5), Day.AddHours(2).AddMinutes(43),
                       "Collector停止（EVTXログ一巡 / GAP疑い）"),
+        new GapWindow(Day.AddHours(12).AddMinutes(2), Day.AddHours(12).AddMinutes(18),
+                      "MTSV再起動（パッチ適用 / 監査一時停止）"),
+    };
+
+    private readonly List<AlertItem> _alerts = new()
+    {
+        new AlertItem(1, Day.AddHours(9.32), "High",   "BULK_CONTENT_READ",    "sasou",    12, "未対応"),
+        new AlertItem(2, Day.AddHours(9.46), "Medium", "ACCESS_DENIED_REPEAT", "oku",       3, "確認中"),
+        new AlertItem(3, Day.AddHours(10.02), "Medium", "DIRECT_ACCESS",       "nishida",   1, "未対応"),
+        new AlertItem(4, Day.AddHours(3.12), "Low",    "SERVICE_ACCOUNT_READ", @"LINEWORKS-NET\svc-dove", 5, "既知(除外候補)"),
+        new AlertItem(5, Day.AddHours(7.45), "Low",    "UNRESOLVED_SID",       "(NULL)",    1, "調査中"),
+    };
+
+    private readonly List<IncidentItem> _incidents = new()
+    {
+        new IncidentItem(1, Day.AddHours(9.30), "BULK_CONTENT_READ", "High",   "sasou",   12, "distinct 12ファイル / 23分", "未対応"),
+        new IncidentItem(2, Day.AddHours(9.30), "CROSS_DEPT_ACCESS", "High",   "sasou",   12, "営業部→技術部 直接読取",     "未対応"),
+        new IncidentItem(3, Day.AddHours(9.46), "CROSS_DEPT_ACCESS", "Medium", "oku",      1, "営業部→技術部（拒否）",       "対応済"),
+        new IncidentItem(4, Day.AddHours(10.02), "DIRECT_BYPASS",    "Medium", "nishida",  1, "ビューアー未経由の直接読取",   "確認中"),
+    };
+
+    private readonly List<CollectorState> _collectors = new()
+    {
+        new CollectorState("lineworks-sv",   "Security 4663 (NTFS監査)", Day.AddHours(10).AddMinutes(31),  60, "OK"),
+        new CollectorState("lineworks-mtsv", "SFE SQLite / 同期Worker",  Day.AddHours(10).AddMinutes(20), 720, "遅延"),
     };
 
     public IReadOnlyList<AccessRow> All() => _rows;
     public IReadOnlyList<GapWindow> Gaps() => _gaps;
     public DateTimeOffset? LastSync() => Day.AddHours(10).AddMinutes(32);          // 直近同期
     public DateTimeOffset? AuditLatestEvent() => Day.AddHours(10).AddMinutes(31);  // 監査最新イベント
+    public IReadOnlyList<AlertItem> Alerts() => _alerts;
+    public IReadOnlyList<IncidentItem> Incidents() => _incidents;
+    public IReadOnlyList<CollectorState> Collectors() => _collectors;
+
+    /// <summary>ユーザーのPC/IP（決定的・固定）。</summary>
+    private static readonly Dictionary<string, (string Pc, string Ip)> People = new()
+    {
+        ["yamanaka"] = ("PC-YAMA", "192.168.1.51"),
+        ["kataoka"]  = ("PC-KATA", "192.168.1.47"),
+        ["imaizumi"] = ("PC-IMAI", "192.168.1.50"),
+        ["higurashi"] = ("PC-HIGU", "192.168.1.58"),
+        ["kinoshita"] = ("PC-KINO", "192.168.1.63"),
+        ["sasou"]    = ("PC-SASOU", "192.168.1.31"),
+        ["oku"]      = ("PC-OKU", "192.168.1.22"),
+        ["nishida"]  = ("PC-NISI", "192.168.1.40"),
+        ["fujimoto"] = ("PC-FUJI", "192.168.1.35"),
+        ["takahashi"] = ("PC-TAKA", "192.168.1.71"),
+        ["ito"]      = ("PC-ITO", "192.168.1.72"),
+        ["kobayashi"] = ("PC-KOBA", "192.168.1.81"),
+        ["saito"]    = ("PC-SAITO", "192.168.1.82"),
+        ["matsuda"]  = ("PC-MATSU", "192.168.1.83"),
+        ["kato"]     = ("PC-KATO", "192.168.1.91"),
+        ["yoshida"]  = ("PC-YOSI", "192.168.1.92"),
+        ["kyodo"]    = ("PC-KYODO", "192.168.1.101"),
+        ["shibata"]  = ("PC-SHIBA", "192.168.1.102"),
+        ["postoffice"] = ("PC-POST", "192.168.1.111"),
+        ["yubin"]    = ("PC-YUBIN", "192.168.1.112"),
+    };
+
+    /// <summary>部署ごとの種：代表ユーザー・代表フォルダ・代表ファイル・開始時刻。</summary>
+    private sealed record DeptSeed(
+        string Dept, string Base, string[] Users, string[] Subs, string[] Files, double BaseHour);
+
+    private static readonly DeptSeed[] Seeds =
+    {
+        new("技術部", $@"{Root}\技術部\機械設計",
+            new[] { "yamanaka", "kataoka", "imaizumi", "higurashi", "kinoshita" },
+            new[] { "06強度計算(LW標準)", "05設計標準書", "07作図標準書", "09製品設計_標準設計書", "11設計標準マニュアル" },
+            new[] { "梁.xlsx", "標準.pdf", "作図.docx", "設計.xlsx", "報告.pptx", "マニュアル.pdf", "購入部品.xlsx" }, 9.0),
+
+        new("営業部", $@"{Root}\営業部",
+            new[] { "sasou", "oku", "nishida", "fujimoto" },
+            new[] { "01見積書", "02顧客台帳", "03提案資料" },
+            new[] { "見積_A社.xlsx", "顧客一覧.xlsx", "提案.pptx", "価格表.pdf" }, 10.0),
+
+        new("総務部", $@"{Root}\総務部",
+            new[] { "takahashi", "ito" },
+            new[] { "01就業規則", "02稟議", "03社内通達" },
+            new[] { "就業規則.pdf", "稟議書.docx", "社内通達.pdf", "組織図.xlsx" }, 11.0),
+
+        new("製造部", $@"{Root}\製造部",
+            new[] { "kobayashi", "saito", "matsuda" },
+            new[] { "01工程表", "02検査記録", "03作業手順" },
+            new[] { "工程表.xlsx", "検査記録.xlsx", "作業手順.pdf", "不良集計.xlsx" }, 13.0),
+
+        new("購買部", $@"{Root}\購買部",
+            new[] { "kato", "yoshida" },
+            new[] { "01発注", "02仕入先", "03単価" },
+            new[] { "発注書.xlsx", "仕入先台帳.xlsx", "単価表.pdf" }, 14.0),
+
+        new("部署間共通", $@"{Root}\部署間共通",
+            new[] { "kyodo", "shibata" },
+            new[] { "01全社通達", "02申請様式", "03カレンダー" },
+            new[] { "全社通達.pdf", "申請様式.docx", "年間予定.xlsx" }, 15.0),
+
+        new("郵便局", $@"{Root}\郵便局",
+            new[] { "postoffice", "yubin" },
+            new[] { "01窓口記録", "02料金", "03受付簿" },
+            new[] { "窓口記録.xlsx", "料金表.pdf", "受付簿.xlsx" }, 16.0),
+    };
 
     private static List<AccessRow> Build()
     {
         var rows = new List<AccessRow>();
         long id = 1;
 
-        void Add(double hour, SourceKind src, string user, string action, ActionKind kind,
-                 string? file, string folderSub, bool ok = true, string? pc = null,
-                 string? ip = null, string? note = null)
+        void Add(double hour, SourceKind src, string user, string dept, string action, ActionKind kind,
+                 string? file, string folder, bool ok = true, string? note = null)
         {
+            People.TryGetValue(user, out var who);
             var time = Day.AddHours(hour);
-            var folder = $"{Base}\\{folderSub}";
-            rows.Add(new AccessRow(id++, time, src, user, action, kind,
-                file is null ? null : $"{folder}\\{file}", folder, pc, ip, ok, note));
+            rows.Add(new AccessRow(id++, time, src, user, dept, action, kind,
+                file is null ? null : $"{folder}\\{file}", folder,
+                who.Pc, who.Ip, ok, note));
         }
 
-        // ---- 🟦 青：ビューアー経由（SFE SQLite）= 本人特定・確実 --------------------
-        Add(9.05, SourceKind.Viewer, "yamanaka", "閲覧", ActionKind.Read, "梁.xlsx", "06強度計算(LW標準)", pc: "PC-YAMA", ip: "192.168.1.51");
-        Add(9.13, SourceKind.Viewer, "kataoka", "閲覧", ActionKind.Read, "標準.pdf", "05設計標準書", pc: "PC-KATA", ip: "192.168.1.47");
-        Add(9.20, SourceKind.Viewer, "imaizumi", "検索", ActionKind.Search, null, "（全体）", pc: "PC-IMAI", ip: "192.168.1.50", note: "クエリ: \"強度計算\"");
-        Add(9.34, SourceKind.Viewer, "higurashi", "開く", ActionKind.Read, "作図.docx", "07作図標準書", pc: "PC-HIGU", ip: "192.168.1.58");
-        Add(9.41, SourceKind.Viewer, "yamanaka", "閲覧", ActionKind.Read, "設計.xlsx", "09製品設計_標準設計書", pc: "PC-YAMA", ip: "192.168.1.51");
-        Add(9.58, SourceKind.Viewer, "kataoka", "閲覧", ActionKind.Read, "報告.pptx", "10不具合報告会", pc: "PC-KATA", ip: "192.168.1.47");
-        Add(10.06, SourceKind.Viewer, "kinoshita", "閲覧", ActionKind.Read, "購入部品.xlsx", "08購入部品選定標準書", pc: "PC-KINO", ip: "192.168.1.63");
-        Add(10.18, SourceKind.Viewer, "higurashi", "開く", ActionKind.Read, "マニュアル.pdf", "11設計標準マニュアル", pc: "PC-HIGU", ip: "192.168.1.58");
-        Add(10.27, SourceKind.Viewer, "imaizumi", "閲覧", ActionKind.Read, "梁.xlsx", "06強度計算(LW標準)", pc: "PC-IMAI", ip: "192.168.1.50");
+        // ---- 🟦 青：各部署のビューアー経由（SFE SQLite）= 本人特定・確実 ----------------------
+        // 各ユーザー3アクセスを決定的に生成（ファイル/フォルダ/時刻はインデックスで回す）。
+        foreach (var s in Seeds)
+        {
+            int idx = 0;
+            foreach (var user in s.Users)
+            {
+                for (int k = 0; k < 3; k++)
+                {
+                    var sub = s.Subs[idx % s.Subs.Length];
+                    var file = s.Files[idx % s.Files.Length];
+                    var folder = $@"{s.Base}\{sub}";
+                    var action = k == 0 ? "検索" : (k == 2 ? "開く" : "閲覧");
+                    var kind = k == 0 ? ActionKind.Search : ActionKind.Read;
+                    var f = k == 0 ? null : file;
+                    var note = k == 0 ? $"クエリ: \"{file.Split('.')[0]}\"" : null;
+                    Add(s.BaseHour + idx * 0.17, SourceKind.Viewer, user, s.Dept, action, kind, f, folder, note: note);
+                    idx++;
+                }
+            }
+        }
 
-        // ---- 🟥 赤：サーバー直接アクセス（audit 実ユーザー・is_content_read）= 要注目 ----
-        Add(9.07, SourceKind.Direct, "sasou", "読み取り", ActionKind.Read, "図面A.dwg", "03技術資料", pc: "PC-SASOU", ip: "192.168.1.31");
-        Add(9.08, SourceKind.Direct, "sasou", "読み取り", ActionKind.Read, "図面B.dwg", "03技術資料", pc: "PC-SASOU", ip: "192.168.1.31");
-        Add(9.08, SourceKind.Direct, "sasou", "読み取り", ActionKind.Read, "図面C.dwg", "03技術資料", pc: "PC-SASOU", ip: "192.168.1.31");
-        Add(9.19, SourceKind.Direct, "sasou", "コピー疑い", ActionKind.Copy, "(37ファイル連続読取)", "03技術資料", pc: "PC-SASOU", ip: "192.168.1.31", note: "短時間に distinct 37 ファイルを内容読取");
-        Add(9.46, SourceKind.Direct, "oku", "読み取り", ActionKind.Read, "設計.xlsx", "09製品設計_標準設計書", ok: false, pc: "PC-OKU", ip: "192.168.1.22", note: "アクセス拒否（権限なし）");
-        Add(10.02, SourceKind.Direct, "nishida", "読み取り", ActionKind.Read, "標準.pdf", "05設計標準書", pc: "PC-NISI", ip: "192.168.1.40");
+        // ---- 🟥 赤：サーバー直接アクセス（audit 実ユーザー・is_content_read）= 要注目 ----------
+        // ★目立つ事例：営業部 sasou が技術部フォルダを直接・大量(distinct 12)読取（部署外＋大量持ち出し）。
+        const string GijutsuShiryo = $@"{Root}\技術部\機械設計\03技術資料";
+        string[] bulk =
+        {
+            "図面A.dwg", "図面B.dwg", "図面C.dwg", "図面D.dwg", "図面E.dwg", "図面F.dwg",
+            "部品表.xlsx", "仕様書.pdf", "回路図.dwg", "treatment.docx", "原価.xlsx", "金型.dwg",
+        };
+        for (int i = 0; i < bulk.Length; i++)
+            Add(9.07 + i * 0.018, SourceKind.Direct, "sasou", "営業部", "読み取り", ActionKind.Read,
+                bulk[i], GijutsuShiryo, note: i == 0 ? "短時間に distinct 多数を内容読取（部署外）" : null);
+        Add(9.32, SourceKind.Direct, "sasou", "営業部", "コピー疑い", ActionKind.Copy,
+            "(12ファイル連続読取)", GijutsuShiryo, note: "23分で distinct 12 ファイルを内容読取 — 大量持ち出し検知");
 
-        // ---- ⬜ 灰：未帰属（MTSV$ / サービス / NULL）= ビューアーの証明ではない -----------
-        Add(9.05, SourceKind.Unknown, @"LINEWORKS-MTSV$", "読み取り", ActionKind.Read, "梁.xlsx", "06強度計算(LW標準)", note: "マシンアカウント（ビューアー代理の可能性／未帰属）");
-        Add(9.34, SourceKind.Unknown, @"LINEWORKS-MTSV$", "読み取り", ActionKind.Read, "作図.docx", "07作図標準書", note: "マシンアカウント（未帰属）");
-        Add(3.12, SourceKind.Unknown, @"LINEWORKS-NET\svc-dove", "読み取り", ActionKind.Read, "梁.xlsx", "06強度計算(LW標準)", note: "バックアップサービス（除外候補）");
-        Add(7.45, SourceKind.Unknown, "(NULL)", "読み取り", ActionKind.Read, "図面A.dwg", "03技術資料", note: "SID未解決／パース失敗（要確認）");
+        // 営業部 oku が技術部フォルダへ直接アクセス → 権限なしで拒否（部署外アクセス・失敗行）。
+        Add(9.46, SourceKind.Direct, "oku", "営業部", "読み取り", ActionKind.Read,
+            "設計.xlsx", $@"{Root}\技術部\機械設計\09製品設計_標準設計書", ok: false, note: "アクセス拒否（部署外・権限なし）");
+
+        // 営業部 nishida が自部署フォルダをビューアー未経由で直接読取（直接バイパス）。
+        Add(10.02, SourceKind.Direct, "nishida", "営業部", "読み取り", ActionKind.Read,
+            "顧客一覧.xlsx", $@"{Root}\営業部\02顧客台帳", note: "ビューアー未経由の直接読取");
+
+        // 購買部 kato が自部署フォルダを直接読取。
+        Add(14.1, SourceKind.Direct, "kato", "購買部", "読み取り", ActionKind.Read,
+            "単価表.pdf", $@"{Root}\購買部\03単価");
+        // 製造部 saito が直接読取。
+        Add(13.4, SourceKind.Direct, "saito", "製造部", "読み取り", ActionKind.Read,
+            "検査記録.xlsx", $@"{Root}\製造部\02検査記録");
+
+        // ---- ⬜ 灰：未帰属（MTSV$ / サービス / NULL）= ビューアーの証明ではない -----------------
+        Add(9.05, SourceKind.Unknown, @"LINEWORKS-MTSV$", "技術部", "読み取り", ActionKind.Read,
+            "梁.xlsx", $@"{Root}\技術部\機械設計\06強度計算(LW標準)", note: "マシンアカウント（ビューアー代理の可能性／未帰属）");
+        Add(9.34, SourceKind.Unknown, @"LINEWORKS-MTSV$", "技術部", "読み取り", ActionKind.Read,
+            "作図.docx", $@"{Root}\技術部\機械設計\07作図標準書", note: "マシンアカウント（未帰属）");
+        Add(10.1, SourceKind.Unknown, @"LINEWORKS-MTSV$", "営業部", "読み取り", ActionKind.Read,
+            "提案.pptx", $@"{Root}\営業部\03提案資料", note: "マシンアカウント（未帰属）");
+        Add(3.12, SourceKind.Unknown, @"LINEWORKS-NET\svc-dove", "技術部", "読み取り", ActionKind.Read,
+            "梁.xlsx", $@"{Root}\技術部\機械設計\06強度計算(LW標準)", note: "バックアップサービス（除外候補）");
+        Add(2.20, SourceKind.Unknown, @"LINEWORKS-NET\svc-dove", "製造部", "読み取り", ActionKind.Read,
+            "工程表.xlsx", $@"{Root}\製造部\01工程表", note: "バックアップサービス（除外候補）");
+        Add(7.45, SourceKind.Unknown, "(NULL)", "技術部", "読み取り", ActionKind.Read,
+            "図面A.dwg", $@"{Root}\技術部\機械設計\03技術資料", note: "SID未解決／パース失敗（要確認）");
 
         return rows.OrderByDescending(r => r.Time).ToList();
     }

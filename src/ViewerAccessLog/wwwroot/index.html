@@ -3,79 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Viewer-Access-Log — 技術部アクセス効果測定</title>
+<title>Viewer-Access-Log — 全社アクセス効果測定</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header>
   <div class="logo">■ Viewer-Access-Log</div>
-  <div class="search"><input id="q" placeholder="🔍 ファイル名 / ユーザー / メモ で検索…"></div>
+  <div class="search"><input id="globalq" placeholder="🔍 ファイル名 / ユーザー / メモ で検索（Enterでログ検索へ）…"></div>
   <div class="user">管理者 ▾</div>
 </header>
 
 <div class="shell">
-  <nav>
-    <a class="active"><span class="ic">🔍</span>アクセスログ</a>
-    <a><span class="ic">▤</span>ダッシュボード</a>
-    <a><span class="ic">👤</span>ユーザー別</a>
-    <a><span class="ic">🖥</span>同期 / 健全性</a>
+  <nav id="nav">
+    <a href="#/dashboard"  data-route="dashboard"><span class="ic">▤</span>ダッシュボード</a>
+    <a href="#/search"     data-route="search"><span class="ic">🔍</span>ログ検索</a>
+    <a href="#/users"      data-route="users"><span class="ic">👤</span>ユーザー別</a>
+    <a href="#/alerts"     data-route="alerts"><span class="ic">🔔</span>アラート</a>
+    <a href="#/incidents"  data-route="incidents"><span class="ic">⚠</span>検知インシデント</a>
+    <a href="#/status"     data-route="status"><span class="ic">🖥</span>サーバー状態 / 健全性</a>
   </nav>
 
-  <main>
-    <h1>技術部フォルダ アクセスログ</h1>
-    <div class="sub">ビューアー経由（🟦）/ サーバー直接（🟥）/ 未帰属（⬜）を区別して、ロックダウンの矯正効果を測定します。</div>
-
-    <!-- 監査健全性（GAP）バナー -->
-    <div id="health" class="health"></div>
-
-    <!-- KPI -->
-    <div id="kpis" class="kpis"></div>
-
-    <!-- ソース絞り込み（3色） -->
-    <div class="srcfilter">
-      <span class="t">ソース:</span>
-      <span class="chip viewer on" data-src="viewer"><span class="dot"></span>🟦 ビューアー経由</span>
-      <span class="chip direct on" data-src="direct"><span class="dot"></span>🟥 サーバー直接</span>
-      <span class="chip unknown on" data-src="unknown"><span class="dot"></span>⬜ 未帰属(MTSV$/不明)</span>
-    </div>
-
-    <!-- フィルタ -->
-    <div class="card">
-      <div class="filters">
-        <div class="f"><label>開始</label><input type="date" id="from"></div>
-        <div class="f"><label>終了</label><input type="date" id="to"></div>
-        <div class="f"><label>ユーザー</label><input type="text" id="user" placeholder="部分一致"></div>
-        <div class="btns"><button class="primary" id="run">検索</button><button id="clear">クリア</button></div>
-      </div>
-      <div class="ops" id="kinds">
-        <span class="lbl">操作:</span>
-        <label><input type="checkbox" value="read" checked>閲覧/読取</label>
-        <label><input type="checkbox" value="write" checked>編集</label>
-        <label><input type="checkbox" value="delete" checked>削除</label>
-        <label><input type="checkbox" value="copy" checked>コピー疑い</label>
-        <label><input type="checkbox" value="search" checked>検索</label>
-        <label><input type="checkbox" value="login">ログイン</label>
-      </div>
-    </div>
-
-    <!-- 結果 -->
-    <div class="card">
-      <h2>検索結果 <span id="count" class="muted"></span></h2>
-      <table>
-        <thead><tr>
-          <th>日時</th><th>ソース</th><th>ユーザー</th><th>操作</th><th>ファイル</th><th>PC / IP</th><th>結果</th>
-        </tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
-      <div class="pager"><span id="pageinfo"></span><span><button id="prev">◀</button> <button id="next">▶</button></span></div>
-      <div class="legend">
-        <span>🟦 <b>ビューアー経由</b>＝SFEログにある＝確実</span>
-        <span>🟥 <b>サーバー直接</b>＝実ユーザーの直読み（要注目）</span>
-        <span>⬜ <b>未帰属</b>＝MTSV$/サービス/不明（ビューアーの証明ではない）</span>
-      </div>
-    </div>
-    <p class="muted small">※ DataMode=Sample（サンプルデータ）。本番では SFE SQLite + AuditLogger を読み取り専用で同期します。</p>
-  </main>
+  <main id="view"><!-- ハッシュルーターが各ビューを描画 --></main>
 </div>
 <script src="app.js"></script>
 </body>

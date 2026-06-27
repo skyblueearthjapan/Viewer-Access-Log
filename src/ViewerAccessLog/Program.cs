@@ -31,18 +31,41 @@ static DateTimeOffset? ParseDate(string? s) =>
     DateTimeOffset.TryParse(s, out var d) ? d : null;
 
 app.MapGet("/api/logs", (string? from, string? to, string? user, string? sources,
-                         string? kinds, string? q, int? page, int? pageSize, LogService svc) =>
+                         string? kinds, string? q, string? dept, int? page, int? pageSize, LogService svc) =>
 {
     var query = new LogQuery(ParseDate(from), ParseDate(to), user,
-        SplitCsv(sources), SplitCsv(kinds), q, page ?? 1, pageSize ?? 50);
+        SplitCsv(sources), SplitCsv(kinds), q, page ?? 1, pageSize ?? 50, dept);
     return Results.Ok(svc.Search(query));
 });
 
-app.MapGet("/api/summary", (string? from, string? to, string? user, string? q, LogService svc) =>
+app.MapGet("/api/summary", (string? from, string? to, string? user, string? q, string? dept, LogService svc) =>
 {
-    var query = new LogQuery(ParseDate(from), ParseDate(to), user, null, null, q);
+    var query = new LogQuery(ParseDate(from), ParseDate(to), user, null, null, q, Dept: dept);
     return Results.Ok(svc.Summarize(query));
 });
+
+app.MapGet("/api/dashboard", (string? from, string? to, string? dept, LogService svc) =>
+{
+    var query = new LogQuery(ParseDate(from), ParseDate(to), null, null, null, null, Dept: dept);
+    return Results.Ok(svc.Dashboard(query));
+});
+
+app.MapGet("/api/users", (string? from, string? to, string? dept, LogService svc) =>
+{
+    var query = new LogQuery(ParseDate(from), ParseDate(to), null, null, null, null, Dept: dept);
+    return Results.Ok(svc.Users(query));
+});
+
+app.MapGet("/api/user", (string? name, string? from, string? to, LogService svc) =>
+{
+    if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "name is required" });
+    var query = new LogQuery(ParseDate(from), ParseDate(to), null, null, null, null);
+    var detail = svc.UserDetail(name, query);
+    return detail is null ? Results.NotFound() : Results.Ok(detail);
+});
+
+app.MapGet("/api/alerts", (LogService svc) => Results.Ok(svc.Alerts()));
+app.MapGet("/api/incidents", (LogService svc) => Results.Ok(svc.Incidents()));
 
 app.MapGet("/api/health", (LogService svc) => Results.Ok(svc.Health()));
 app.MapGet("/api/filters", (LogService svc) => Results.Ok(svc.Filters()));

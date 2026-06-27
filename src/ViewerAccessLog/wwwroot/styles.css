@@ -82,5 +82,49 @@ tbody tr.u{box-shadow:inset 4px 0 0 var(--unknown);background:#fafafa;}
 .ok{color:var(--green);font-weight:600;} .ng{color:var(--red);font-weight:600;}
 
 .pager{display:flex;justify-content:space-between;align-items:center;margin-top:10px;color:var(--muted);font-size:12px;}
-.legend{font-size:12px;color:var(--muted);margin-top:10px;display:flex;gap:18px;flex-wrap:wrap;}
+.legend{font-size:12px;color:var(--muted);margin-top:10px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;}
+.legend .sw{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
+.legend .sw.v{background:var(--viewer);} .legend .sw.d{background:var(--direct);} .legend .sw.u{background:var(--unknown);}
 .file{font-family:Consolas,monospace;font-size:12px;}
+
+/* ---- SPA: レイアウト ---- */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:980px){.grid2{grid-template-columns:1fr;}}
+a{color:var(--primary);}
+.back{color:var(--muted);text-decoration:none;} .back:hover{text-decoration:underline;}
+
+/* ---- 時間帯別スタック棒（CSS div） ---- */
+.hourchart{display:flex;align-items:flex-end;gap:6px;height:160px;padding:6px 2px;overflow-x:auto;}
+.hcol{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;min-width:26px;flex:1;}
+.hbar{display:flex;flex-direction:column-reverse;width:20px;border-radius:3px 3px 0 0;overflow:hidden;}
+.hbar .seg{width:100%;}
+.seg.v{background:var(--viewer);} .seg.d{background:var(--direct);} .seg.u{background:var(--unknown);}
+.hx{font-size:10px;color:var(--muted);white-space:nowrap;}
+
+/* ---- 横棒（Topユーザー / 部署別） ---- */
+.hbars{display:flex;flex-direction:column;gap:8px;}
+.hbrow{display:flex;align-items:center;gap:10px;font-size:13px;}
+.hbname{width:120px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.hbtrack{flex:1;background:#eef1f5;border-radius:6px;height:14px;overflow:hidden;}
+.hbfill{display:block;height:100%;border-radius:6px;}
+.hbfill.v{background:var(--viewer);} .hbfill.d{background:var(--direct);}
+.hbval{width:42px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);}
+
+/* ---- 重要度バッジ / 種別タグ / 状態 ---- */
+.sev{display:inline-flex;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:700;}
+.sev.high{background:#fde8e8;color:var(--red);}
+.sev.medium{background:#fdecdc;color:var(--orange);}
+.sev.low{background:#eef0f2;color:var(--muted);}
+.tag{display:inline-flex;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;font-family:Consolas,monospace;background:var(--primary-light);color:var(--primary-dark);}
+.state{font-size:12px;color:var(--muted);} .state.ok{color:var(--green);font-weight:600;} .state.ng{color:var(--orange);font-weight:700;}
+
+/* ---- ユーザー別の件数色 / クリック行 ---- */
+.cv{color:var(--viewer);font-weight:600;} .cd{color:var(--direct);font-weight:700;} .cu{color:var(--unknown);}
+tr.clickable{cursor:pointer;} tr.clickable:hover{background:var(--primary-light);}
+
+/* ---- タイムライン ---- */
+.timeline{display:flex;flex-direction:column;gap:6px;}
+.tl{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;border-left:4px solid var(--border);background:#fafbfc;font-size:13px;flex-wrap:wrap;}
+.tl.v{border-left-color:var(--viewer);} .tl.d{border-left-color:var(--direct);background:#fff8f4;} .tl.u{border-left-color:var(--unknown);background:#fafafa;}
+.tl-t{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.tl-f{flex:1;min-width:160px;}

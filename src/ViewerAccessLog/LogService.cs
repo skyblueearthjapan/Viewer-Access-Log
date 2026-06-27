@@ -49,7 +49,76 @@ public sealed class LogService(ILogSource source)
         var last = source.LastSync();
         var latest = source.AuditLatestEvent();
         int lag = last is { } l && latest is { } e ? (int)(l - e).TotalSeconds : 0;
-        return new HealthInfo("Sample", last, Math.Abs(lag), latest, source.Gaps());
+        return new HealthInfo("Sample", last, Math.Abs(lag), latest, source.Gaps(), source.Collectors());
+    }
+
+    public IReadOnlyList<AlertItem> Alerts() => source.Alerts();
+    public IReadOnlyList<IncidentItem> Incidents() => source.Incidents();
+
+    /// <summary>ダッシュボード：KPI＋時間帯別スタック＋直接Topユーザー＋部署別件数＋直近インシデント。</summary>
+    public DashboardData Dashboard(LogQuery q)
+    {
+        var summary = Summarize(q);
+        var inRange = Filtered(q, applySourceKind: false).ToList();
+
+        var hourly = Enumerable.Range(0, 24).Select(h =>
+        {
+            var hr = inRange.Where(r => r.Time.Hour == h).ToList();
+            return new HourPoint(h,
+                hr.Count(r => r.Source == SourceKind.Viewer),
+                hr.Count(r => r.Source == SourceKind.Direct),
+                hr.Count(r => r.Source == SourceKind.Unknown));
+        }).ToList();
+
+        var directTop = inRange.Where(r => r.Source == SourceKind.Direct)
+            .GroupBy(r => r.User)
+            .Select(g => new NameCount(g.Key, g.Count()))
+            .OrderByDescending(x => x.Count).ThenBy(x => x.Name)
+            .Take(8).ToList();
+
+        var deptCounts = inRange
+            .GroupBy(r => r.Dept)
+            .Select(g => new NameCount(g.Key, g.Count()))
+            .OrderByDescending(x => x.Count).ThenBy(x => x.Name)
+            .ToList();
+
+        var recentIncidents = source.Incidents()
+            .OrderByDescending(i => i.Time).Take(5).ToList();
+
+        return new DashboardData(summary, hourly, directTop, deptCounts, recentIncidents);
+    }
+
+    /// <summary>ユーザー別一覧（青/赤/灰件数・最終アクセス）。部署は最頻出フォルダ部署で代表させる。</summary>
+    public IReadOnlyList<UserRow> Users(LogQuery q)
+    {
+        return Filtered(q, applySourceKind: false)
+            .GroupBy(r => r.User)
+            .Select(g => new UserRow(
+                g.Key,
+                g.GroupBy(r => r.Dept).OrderByDescending(d => d.Count()).ThenBy(d => d.Key).First().Key,
+                g.Count(r => r.Source == SourceKind.Viewer),
+                g.Count(r => r.Source == SourceKind.Direct),
+                g.Count(r => r.Source == SourceKind.Unknown),
+                g.Max(r => r.Time)))
+            .OrderByDescending(u => u.Direct).ThenByDescending(u => u.Viewer + u.Unknown).ThenBy(u => u.User)
+            .ToList();
+    }
+
+    /// <summary>ユーザー詳細（時系列タイムライン＋ソース別サマリ）。</summary>
+    public UserDetail? UserDetail(string name, LogQuery q)
+    {
+        var rows = Filtered(q, applySourceKind: false)
+            .Where(r => r.User.Equals(name, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(r => r.Time)
+            .ToList();
+        if (rows.Count == 0) return null;
+
+        var dept = rows.GroupBy(r => r.Dept).OrderByDescending(d => d.Count()).ThenBy(d => d.Key).First().Key;
+        return new UserDetail(rows[0].User, dept,
+            rows.Count(r => r.Source == SourceKind.Viewer),
+            rows.Count(r => r.Source == SourceKind.Direct),
+            rows.Count(r => r.Source == SourceKind.Unknown),
+            rows);
     }
 
     public object Filters()
@@ -58,6 +127,7 @@ public sealed class LogService(ILogSource source)
         return new
         {
             users = all.Select(r => r.User).Distinct().OrderBy(u => u).ToArray(),
+            depts = all.Select(r => r.Dept).Distinct().OrderBy(d => d).ToArray(),
             sources = new[] { "viewer", "direct", "unknown" },
             kinds = Enum.GetNames<ActionKind>().Select(s => s.ToLowerInvariant()).ToArray(),
         };
@@ -71,6 +141,8 @@ public sealed class LogService(ILogSource source)
         if (q.To is { } to) rows = rows.Where(r => r.Time < to);
         if (!string.IsNullOrWhiteSpace(q.User))
             rows = rows.Where(r => r.User.Contains(q.User, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(q.Dept))
+            rows = rows.Where(r => r.Dept == q.Dept);
 
         if (!string.IsNullOrWhiteSpace(q.Q))
         {
