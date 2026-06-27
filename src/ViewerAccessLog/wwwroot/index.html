@@ -21,19 +21,31 @@
     <a href="#/alerts"     data-route="alerts"><span class="ic">🔔</span>アラート</a>
     <a href="#/incidents"  data-route="incidents"><span class="ic">⚠</span>検知インシデント</a>
     <a href="#/status"     data-route="status"><span class="ic">🖥</span>サーバー状態 / 健全性</a>
+    <div class="nav-sep"></div>
+    <a href="#/settings"   data-route="settings"><span class="ic">⚙</span>設定 <span class="badge-proto">P4</span></a>
   </nav>
 
   <main id="view"><!-- ハッシュルーターが各ビューを描画 --></main>
 </div>
-<!-- 行詳細スライドインパネル（ログ検索で行クリック時に右からスライド） -->
+
+<!-- 行詳細スライドインパネル（ログ検索・インシデントで行クリック時に右からスライド） -->
 <div id="dp-overlay" class="dp-overlay"></div>
-<aside id="dp-panel" class="dp-panel" role="dialog" aria-label="アクセス詳細">
+<aside id="dp-panel" class="dp-panel" role="dialog" aria-label="詳細">
   <div class="dp-header">
-    <span class="dp-title">アクセス詳細</span>
+    <span id="dp-title" class="dp-title">詳細</span>
     <button id="dp-close" class="dp-close" aria-label="閉じる">×</button>
   </div>
   <div id="dp-body" class="dp-body"></div>
 </aside>
+
+<!-- モーダル（設定画面の追加/編集フォーム） -->
+<div id="modal-overlay" class="modal-overlay">
+  <div id="modal-box" class="modal-box"></div>
+</div>
+
+<!-- トースト（楽観更新・書込モックの通知） -->
+<div id="toast" class="toast"></div>
+
 <script src="app.js"></script>
 </body>
 </html>

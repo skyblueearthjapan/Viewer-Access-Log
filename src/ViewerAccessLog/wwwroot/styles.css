@@ -172,3 +172,54 @@ tr.clickrow:hover td{background:rgba(26,95,180,.05);}
 /* ---- P1c: ダッシュボード ドリルダウン ---- */
 .kpi.clickable{cursor:pointer;transition:box-shadow .15s;}
 .kpi.clickable:hover{box-shadow:0 0 0 2px var(--primary);}
+
+/* ---- #0 Part A: ナビ区切り・P4 バッジ ---- */
+.nav-sep{border-top:1px solid var(--border);margin:8px 10px;}
+.badge-proto{font-size:10px;background:#fdecdc;color:var(--orange);padding:1px 6px;border-radius:4px;font-weight:700;vertical-align:middle;}
+
+/* ---- #0 Part A: トースト ---- */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:#1F2937;color:#fff;padding:12px 22px;border-radius:8px;font-size:13px;
+  z-index:200;opacity:0;transition:opacity .3s,transform .3s;max-width:520px;text-align:center;pointer-events:none;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* ---- #0 Part A: モーダル ---- */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:150;display:none;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal-box{background:#fff;border-radius:10px;width:520px;max-width:92vw;max-height:86vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.22);}
+.modal-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:15px;}
+.modal-header button{background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);line-height:1;padding:0 4px;}
+.modal-header button:hover{color:var(--text);}
+.modal-body{padding:18px;}
+.modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);}
+
+/* ---- #0 Part A: 設定タブ ---- */
+.tabs{display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap;border-bottom:2px solid var(--border);}
+.tab{background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;
+  padding:9px 14px;font-size:13px;cursor:pointer;color:var(--muted);}
+.tab.active{color:var(--primary-dark);font-weight:700;border-bottom-color:var(--primary);}
+.tab:hover:not(.active){color:var(--text);}
+
+/* ---- #0 Part A: 設定フォーム行 ---- */
+.sf-row{display:flex;flex-direction:column;gap:4px;margin-bottom:14px;}
+.sf-row label{font-size:12px;color:var(--muted);font-weight:600;}
+.sf-row input,.sf-row select{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:100%;}
+
+/* ---- #0 Part A: 有効/無効トグルボタン ---- */
+.btn-tog{font-size:12px;padding:3px 10px;border-radius:12px;border:1px solid;cursor:pointer;font-weight:600;}
+.btn-tog.on{background:#e6f4ea;color:var(--green);border-color:#b6dcc0;}
+.btn-tog.off{background:#fde8e8;color:var(--red);border-color:#f5b8b8;}
+
+/* ---- #0 Part A: 設定テーブルヘッダー行（タイトル + 追加ボタン） ---- */
+.stb-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.stb-header h2{margin:0;}
+.btn-edit,.btn-del{font-size:12px;padding:3px 8px;margin-left:4px;}
+.btn-del{color:var(--red);border-color:#f5b8b8;}
+
+/* ---- #0 B5: 保存済み検索条件 ---- */
+.presets-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:13px;}
+.preset-lbl{color:var(--muted);font-size:12px;font-weight:600;}
+.preset-chip{display:inline-flex;align-items:center;gap:4px;background:var(--primary-light);color:var(--primary-dark);
+  border:1px solid var(--primary);border-radius:16px;padding:3px 8px 3px 10px;font-size:12px;}
+.preset-chip button{background:none;border:none;cursor:pointer;color:var(--primary-dark);font-size:12px;padding:0 2px;line-height:1;}
+.preset-chip button:hover{color:var(--red);}

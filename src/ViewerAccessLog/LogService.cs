@@ -105,7 +105,14 @@ public sealed class LogService(ILogSource source)
         var recentIncidents = source.Incidents()
             .OrderByDescending(i => i.Time).Take(5).ToList();
 
-        return new DashboardData(summary, hourly, directTop, deptCounts, recentIncidents);
+        // B1: 操作種別内訳（全ソース対象）
+        var actionBreakdown = inRange
+            .GroupBy(r => r.Kind.ToString())
+            .Select(g => new NameCount(g.Key, g.Count()))
+            .OrderByDescending(x => x.Count)
+            .ToList();
+
+        return new DashboardData(summary, hourly, directTop, deptCounts, recentIncidents, actionBreakdown);
     }
 
     /// <summary>ユーザー別一覧（青/赤/灰件数・最終アクセス）。部署は最頻出フォルダ部署で代表させる。</summary>
@@ -124,7 +131,7 @@ public sealed class LogService(ILogSource source)
             .ToList();
     }
 
-    /// <summary>ユーザー詳細（時系列タイムライン＋ソース別サマリ）。</summary>
+    /// <summary>ユーザー詳細（時系列タイムライン＋ソース別サマリ＋時間帯別＋操作種別内訳）。</summary>
     public UserDetail? UserDetail(string name, LogQuery q)
     {
         var rows = Filtered(q, applySourceKind: false)
@@ -134,12 +141,33 @@ public sealed class LogService(ILogSource source)
         if (rows.Count == 0) return null;
 
         var dept = rows.GroupBy(r => r.Dept).OrderByDescending(d => d.Count()).ThenBy(d => d.Key).First().Key;
+
+        // B2: 時間帯別 3色
+        var userHourly = Enumerable.Range(0, 24).Select(h =>
+        {
+            var hr = rows.Where(r => r.Time.Hour == h).ToList();
+            return new HourPoint(h,
+                hr.Count(r => r.Source == SourceKind.Viewer),
+                hr.Count(r => r.Source == SourceKind.Direct),
+                hr.Count(r => r.Source == SourceKind.Unknown));
+        }).ToList();
+
+        // B2: 操作種別内訳
+        var actionBreakdown = rows
+            .GroupBy(r => r.Kind.ToString())
+            .Select(g => new NameCount(g.Key, g.Count()))
+            .OrderByDescending(x => x.Count)
+            .ToList();
+
         return new UserDetail(rows[0].User, dept,
             rows.Count(r => r.Source == SourceKind.Viewer),
             rows.Count(r => r.Source == SourceKind.Direct),
             rows.Count(r => r.Source == SourceKind.Unknown),
-            rows);
+            rows, userHourly, actionBreakdown);
     }
+
+    /// <summary>P4 設定取得（読み取りのみ。書込は P4 の限定書込ロール）。</summary>
+    public SettingsData Settings() => source.Settings();
 
     public object Filters()
     {

@@ -53,6 +53,64 @@ public sealed class SampleLogSource : ILogSource
     public IReadOnlyList<AlertItem> Alerts() => _alerts;
     public IReadOnlyList<IncidentItem> Incidents() => _incidents;
     public IReadOnlyList<CollectorState> Collectors() => _collectors;
+    public SettingsData Settings() => _settings;
+
+    // ---- P4 設定サンプル（AuditLogger スキーマに沿う。読み取りのみ）--------------
+    private static readonly SettingsData _settings = new(
+        Folders: new List<MonitoredFolder>
+        {
+            new(1, "lineworks-sv", $@"{Root}\技術部",   "High",   true,  false, false, true),
+            new(2, "lineworks-sv", $@"{Root}\営業部",   "Medium", true,  true,  false, true),
+            new(3, "lineworks-sv", $@"{Root}\総務部",   "Medium", true,  false, false, true),
+            new(4, "lineworks-sv", $@"{Root}\製造部",   "Low",    true,  false, false, true),
+            new(5, "lineworks-sv", $@"{Root}\購買部",   "Low",    true,  false, false, false),
+        },
+        Users: new List<UserConfig>
+        {
+            new(1, "LINEWORKS-NET", "yamanaka",  "山中 太郎",         "技術部", "viewer",  true),
+            new(2, "LINEWORKS-NET", "imaizumi",  "今泉 一郎",         "技術部", "admin",   true),
+            new(3, "LINEWORKS-NET", "sasou",     "佐相 次郎",         "営業部", "viewer",  true),
+            new(4, "LINEWORKS-NET", "takahashi", "高橋 花子",         "総務部", "viewer",  true),
+            new(5, "LINEWORKS-NET", "svc-dove",  "バックアップSVC",   "システム","service", false),
+        },
+        Rules: new List<AlertRule>
+        {
+            new(1, "大量持ち出し検知",         "BULK_CONTENT_READ",    "High",   "*", 10, 30, false, true),
+            new(2, "権限外アクセス繰返し",     "ACCESS_DENIED_REPEAT", "Medium", "*",  3,  5, false, true),
+            new(3, "ビューアー未経由直接読取", "DIRECT_BYPASS",        "Low",    "*",  1, 60, false, true),
+        },
+        Exclusions: new List<DetectionExclusion>
+        {
+            new(1, @"LINEWORKS-NET\svc-dove", null, null, "バックアップサービス（定期読取）"),
+            new(2, @"LINEWORKS-MTSV$",        null, null, "マシンアカウント（SFEエージェント代理の可能性）"),
+            new(3, "(NULL)",                  null, null, "SID解決失敗（パース不能・要確認）"),
+        },
+        CommonFolders: new List<CommonFolder>
+        {
+            new(1, $@"{Root}\部署間共通", "全部署共通フォルダ（部署外アクセス判定から除外）"),
+            new(2, $@"{Root}\郵便局",     "郵便局フォルダ（全社アクセス可・部署外判定除外）"),
+        },
+        UserGrants: new List<UserFolderGrant>
+        {
+            new(1, "kyodo",   "dept",    "部署間共通"),
+            new(2, "shibata", "dept",    "部署間共通"),
+            new(3, "yubin",   "postbox", "郵便局"),
+        },
+        AppSettings: new List<AppSetting>
+        {
+            new("notification.email.enabled",               "true",                         "メール通知を有効にする"),
+            new("notification.email.to",                    "admin-01@lineworks-local.info","通知先メールアドレス"),
+            new("notification.email.subject_prefix",        "[監査警告]",                   "件名プレフィックス"),
+            new("detection.bulk.enabled",                   "true",                         "大量持ち出し検知を有効にする"),
+            new("detection.bulk.threshold",                 "10",                           "検知しきい値（distinct ファイル数）"),
+            new("detection.bulk.window_minutes",            "30",                           "検知時間窓（分）"),
+            new("detection.offhours.start",                 "20:00",                        "夜間開始時刻"),
+            new("detection.offhours.end",                   "06:00",                        "夜間終了時刻"),
+            new("detection.crossdept.enabled",              "true",                         "部署外アクセス検知を有効にする"),
+            new("detection.crossdept.common_folders_excluded","true",                       "共通フォルダを部署外判定から除外する"),
+            new("log.retention_days",                       "365",                          "ログ保持日数"),
+        }
+    );
 
     /// <summary>ユーザーのPC/IP（決定的・固定）。</summary>
     private static readonly Dictionary<string, (string Pc, string Ip)> People = new()

@@ -102,14 +102,16 @@ public record UserRow(
     long Unknown,
     DateTimeOffset LastAccess);
 
-/// <summary>ユーザー詳細（ソース別サマリ＋時系列タイムライン）。</summary>
+/// <summary>ユーザー詳細（ソース別サマリ＋時系列タイムライン＋時間帯別＋操作種別内訳）。</summary>
 public record UserDetail(
     string User,
     string Dept,
     long Viewer,
     long Direct,
     long Unknown,
-    IReadOnlyList<AccessRow> Timeline);
+    IReadOnlyList<AccessRow> Timeline,
+    IReadOnlyList<HourPoint> Hourly,             // B2: 時間帯別 3色
+    IReadOnlyList<NameCount> ActionBreakdown);    // B2: 操作種別×件数
 
 /// <summary>時間帯別スタック棒の1点（時×3色）。</summary>
 public record HourPoint(int Hour, long Viewer, long Direct, long Unknown);
@@ -117,13 +119,54 @@ public record HourPoint(int Hour, long Viewer, long Direct, long Unknown);
 /// <summary>名前×件数（Topユーザー・部署別件数の横棒用）。</summary>
 public record NameCount(string Name, long Count);
 
-/// <summary>ダッシュボード一括取得（KPI＋各グラフ＋直近インシデント）。</summary>
+/// <summary>ダッシュボード一括取得（KPI＋各グラフ＋直近インシデント＋操作種別内訳）。</summary>
 public record DashboardData(
     Summary Summary,
     IReadOnlyList<HourPoint> Hourly,
     IReadOnlyList<NameCount> DirectTopUsers,
     IReadOnlyList<NameCount> DeptCounts,
-    IReadOnlyList<IncidentItem> RecentIncidents);
+    IReadOnlyList<IncidentItem> RecentIncidents,
+    IReadOnlyList<NameCount> ActionBreakdown);    // B1: 操作種別×件数
+
+// ---- P4 設定系モデル（読み取りのみ。書込は P4 の限定書込ロールで実装予定）------
+
+/// <summary>監視フォルダ。monitored_folders テーブル相当。</summary>
+public record MonitoredFolder(
+    int Id, string Server, string Path, string Importance,
+    bool ReadEnabled, bool WriteEnabled, bool DeleteEnabled, bool Enabled);
+
+/// <summary>ユーザー設定。users テーブル相当（NTFS アクセス管理用）。</summary>
+public record UserConfig(
+    int Id, string Domain, string Name, string Display,
+    string Dept, string Role, bool Enabled);
+
+/// <summary>アラートルール。alert_rules テーブル相当。</summary>
+public record AlertRule(
+    int Id, string Name, string Condition, string Severity,
+    string Target, int Threshold, int WindowMinutes, bool OffHours, bool Enabled);
+
+/// <summary>検知除外設定。detection_exclusions テーブル相当。</summary>
+public record DetectionExclusion(
+    int Id, string User, string? Process, string? Path, string Reason);
+
+/// <summary>部署外アクセス判定から除外する共通フォルダ。</summary>
+public record CommonFolder(int Id, string Path, string Description);
+
+/// <summary>ユーザーへの特定フォルダアクセス付与（dept | postbox）。</summary>
+public record UserFolderGrant(int Id, string User, string Kind, string Value);
+
+/// <summary>アプリ設定（key-value）。app_settings テーブル相当。</summary>
+public record AppSetting(string Key, string Value, string Description);
+
+/// <summary>設定一括取得（/api/settings の返値）。</summary>
+public record SettingsData(
+    IReadOnlyList<MonitoredFolder> Folders,
+    IReadOnlyList<UserConfig> Users,
+    IReadOnlyList<AlertRule> Rules,
+    IReadOnlyList<DetectionExclusion> Exclusions,
+    IReadOnlyList<CommonFolder> CommonFolders,
+    IReadOnlyList<UserFolderGrant> UserGrants,
+    IReadOnlyList<AppSetting> AppSettings);
 
 /// <summary>
 /// ログ取得元の抽象。今は SampleLogSource（サンプル）。
@@ -138,4 +181,5 @@ public interface ILogSource
     IReadOnlyList<AlertItem> Alerts();
     IReadOnlyList<IncidentItem> Incidents();
     IReadOnlyList<CollectorState> Collectors();
+    SettingsData Settings();                      // P4: 設定一括取得（読み取りのみ）
 }

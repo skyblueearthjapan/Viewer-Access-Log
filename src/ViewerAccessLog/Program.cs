@@ -115,5 +115,9 @@ app.MapGet("/api/incidents", (LogService svc) => Results.Ok(svc.Incidents()));
 app.MapGet("/api/health", (LogService svc) => Results.Ok(svc.Health()));
 app.MapGet("/api/filters", (LogService svc) => Results.Ok(svc.Filters()));
 
+// P4 設定一括取得（読み取りのみ。書込エンドポイントは P4 の限定書込ロールで実装予定）。
+// サーバーへ書き込むエンドポイントは一切存在しない（クライアント側モックのみ）。
+app.MapGet("/api/settings", (LogService svc) => Results.Ok(svc.Settings()));
+
 var url = builder.Configuration["Urls"] ?? "http://localhost:5099";
 app.Run(url);
