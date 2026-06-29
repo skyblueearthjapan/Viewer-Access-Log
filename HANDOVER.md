@@ -142,3 +142,7 @@ P1〜P3・P3仕上げ・P4a・P4b は**完了**（読み書き両対応で Audit
 ## 8. 直近セッションの経緯（2026-06-29）
 
 P2本番確認 → viewerロール作成 → P3コード(Live層) → **P3 Live実データ検証成功**(direct 13,095/利用率1.1%) → **P3恒久デプロイ**(Windowsサービス5090) → **P3仕上げ**(Live設定読取＋GAP検出) → **P4a**(書込基盤＋検知除外/app_settings) → **P4b**(残りCRUD＋状態変更)。各段階でビルド→publish→共有ステージ→`Update`(or `Deploy`)→ネット越しWindows認証で実検証、を反復。詳細コミットは GitHub `Viewer-Access-Log` main の履歴に。
+
+**UI改善(2026-06-29)**:
+- **日付バグ修正**: ログ検索/各画面の期間が**サンプル固定日2026-06-27**になっていた → Live時は起動(boot)で `dataMode=Live` を見て**実日付(JST)**に切替。クイックボタン/ラベルもアンカー基準で動的化。`nextDay`をTZ非依存(UTC)に修正。Sampleは従来通り固定日維持。`app.js` 冒頭の `ANCHOR`/`jstToday()`/`addDays`/`monthStart`/`monthEnd` と末尾 `boot()`。
+- **検知インシデント日本語化**: 種別(CROSS_DEPT_ACCESS→部署外アクセス等)/状態(new→新規)/重要度(Medium→中)を日本語ラベル、**指標(生JSON)を「対象ファイルN件 / フォルダN / 直近N分 / しきい値N」等の日本語サマリー**に。詳細パネルはサマリー＋ルール/クローズ理由＋生JSON(折りたたみ)。`app.js` の `incTypeLabel`/`incStatusLabel`/`sevLabel`/`metricSummary`/`metricDetailHtml`。**※アラート画面の重要度は未対応(同じ `sevLabel` で容易に拡張可)**。
