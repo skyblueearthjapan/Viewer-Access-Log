@@ -3,6 +3,9 @@ using ViewerAccessLog;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Windowsサービスとして起動された場合に正しく動作する（コンソール起動時は無害な no-op）。
+builder.Host.UseWindowsService();
+
 // JSON: プロパティ camelCase、enum も camelCase 文字列で返す（UIから扱いやすく）。
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
