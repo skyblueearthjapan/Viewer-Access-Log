@@ -49,6 +49,16 @@ function shortFile(path) {
   const i = path.indexOf("Data\\");
   return i >= 0 ? path.slice(i + 5) : path;
 }
+// ファイル列のフルパス表示。
+// 🟦ビューアー: folder(フォルダ経路) + file(ファイル名) を結合して経路まで出す。
+// 🟥直接/⬜未帰属: file が既にフルパスなので Data\ 以降に短縮。
+function fullPath(r) {
+  if (r.source === "viewer" && r.folder) {
+    const base = String(r.folder).replace(/[\\/]+$/, "");
+    return r.file ? base + "\\" + r.file : base;
+  }
+  return shortFile(r.file);
+}
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const num = (n) => Number(n).toLocaleString();
 const getJson = (url) => fetch(url).then((r) => r.json());
@@ -147,7 +157,7 @@ function openDetail(r) {
     ["部署",     esc(r.dept)],
     ["ユーザー", userCell(r.user)],
     ["操作",     `<span class="op ${r.kind}">${esc(r.action)}</span>`],
-    ["ファイル", `<span class="dp-val file">${esc(r.file || "—")}</span>`],
+    ["ファイル", `<span class="dp-val file">${esc(fullPath(r) || "—")}</span>`],
     ["フォルダ", `<span class="dp-val file">${esc(r.folder || "—")}</span>`],
     ["PC",       esc(r.pc  || "—")],
     ["IP",       esc(r.ip  || "—")],
@@ -479,7 +489,7 @@ async function search() {
         <td>${esc(r.dept)}</td>
         <td>${userCell(r.user)}</td>
         <td><span class="op ${r.kind}">${esc(r.action)}</span></td>
-        <td class="file">${esc(shortFile(r.file))}${r.note ? ` <span class="muted">— ${esc(r.note)}</span>` : ""}</td>
+        <td class="file">${esc(fullPath(r))}${r.note ? ` <span class="muted">— ${esc(r.note)}</span>` : ""}</td>
         <td>${esc(r.pc || "")}${r.ip ? " / " + r.ip.split(".").slice(-1) : ""}</td>
         <td class="${r.success ? "ok" : "ng"}">${r.success ? "OK" : "拒否"}</td>
       </tr>`).join("") || `<tr><td colspan="8" class="muted">該当なし</td></tr>`;
@@ -603,7 +613,7 @@ async function userDetail(name) {
       <span class="tl-t">${fmtTime(r.time)}</span>
       <span class="src ${r.source}">${SRC_LABEL[r.source]}</span>
       <span class="op ${r.kind}">${esc(r.action)}</span>
-      <span class="tl-f file">${esc(shortFile(r.file))}</span>
+      <span class="tl-f file">${esc(fullPath(r))}</span>
       ${r.note  ? `<span class="muted">— ${esc(r.note)}</span>` : ""}
       ${r.success ? "" : `<span class="ng">拒否</span>`}
     </div>`).join("");
