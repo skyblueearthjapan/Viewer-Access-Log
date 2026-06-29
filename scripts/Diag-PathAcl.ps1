@@ -25,9 +25,13 @@ $path = Invoke-Command -ComputerName lineworks-mtsv -Credential $mc -ArgumentLis
            Select-Object -First 1 -ExpandProperty FullName)
   if (-not $psql) { return '' }
   $env:PGPASSWORD = $vpw
-  $out = ($q | & $psql -U viewer -h localhost -d audit_logger -t -A -f -)
+  # write psql result to a UTF-8 file and read it as UTF-8 (independent of console encoding)
+  $tmp = [System.IO.Path]::GetTempFileName()
+  $q | & $psql -U viewer -h localhost -d audit_logger -t -A -o $tmp -f - | Out-Null
+  $txt = [System.IO.File]::ReadAllText($tmp, [System.Text.Encoding]::UTF8)
+  Remove-Item $tmp -ErrorAction SilentlyContinue
   Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
-  ($out | Select-Object -First 1)
+  (($txt -split "`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' } | Select-Object -First 1)
 }
 
 if ([string]::IsNullOrWhiteSpace($path)) { Write-Host "no gijutsu-bu path found for user '$targetUser'"; return }
