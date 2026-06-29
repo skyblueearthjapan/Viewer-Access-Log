@@ -5,6 +5,7 @@
 
 -- viewer が無ければ作成（あれば何もしない）。:'vpw' は通常SQL文脈なので psql が安全に展開する。
 SELECT format('CREATE ROLE viewer LOGIN PASSWORD %L', :'vpw')
+FROM (SELECT 1) AS t
 WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'viewer')
 \gexec
 
