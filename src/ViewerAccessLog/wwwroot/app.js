@@ -253,10 +253,10 @@ async function dashboard() {
   d.recentIncidents.forEach((i) => { _incCache[i.id] = i; });
   const incHtml = d.recentIncidents.map((i) => `
     <tr class="clickrow-inc" data-id="${i.id}">
-      <td>${fmtTime(i.time)}</td><td><span class="tag">${esc(i.type)}</span></td>
-      <td><span class="${sevCls(i.severity)}">${esc(i.severity)}</span></td>
+      <td>${fmtTime(i.time)}</td><td><span class="tag">${esc(incTypeLabel(i.type))}</span></td>
+      <td><span class="${sevCls(i.severity)}">${esc(sevLabel(i.severity))}</span></td>
       <td>${esc(i.user)}</td><td>${num(i.matchCount)}</td>
-      <td class="muted">${esc(i.metric)}</td>
+      <td class="muted">${metricSummary(i.metric)}</td>
     </tr>`).join("") || `<tr><td colspan="6" class="muted">なし</td></tr>`;
 
   view.innerHTML = `
@@ -681,6 +681,67 @@ async function alerts() {
 // ===================================================================
 // ⑤ 検知インシデント  #/incidents   (B3: スライドインパネル + B4: ドリルダウン)
 // ===================================================================
+// ===================================================================
+// 検知インシデントの日本語表記
+// ===================================================================
+const INC_TYPE_LABEL = {
+  CROSS_DEPT_ACCESS: "部署外アクセス",
+  BULK_CONTENT_READ: "大量読み取り（持ち出し前兆）",
+  SERVER_EXTERNAL_COPY_SUSPECTED: "外部コピー疑い",
+  BULK_DELETE: "大量削除",
+  OFF_HOURS_ACCESS: "時間外アクセス",
+  MASS_DOWNLOAD: "大量ダウンロード",
+};
+function incTypeLabel(t) { return INC_TYPE_LABEL[String(t).toUpperCase()] || t; }
+
+const INC_STATUS_LABEL = {
+  new: "新規", open: "新規", ack: "確認済", acknowledged: "確認済",
+  investigating: "調査中", closed: "クローズ済", resolved: "解決済",
+  false_positive: "誤検知", dismissed: "却下",
+};
+function incStatusLabel(s) { return INC_STATUS_LABEL[String(s).toLowerCase()] || s; }
+
+const SEV_LABEL = { low: "低", medium: "中", high: "高", critical: "重大" };
+function sevLabel(s) { return SEV_LABEL[String(s).toLowerCase()] || s; }
+
+// 指標(metrics JSON) → 日本語の短いサマリー。0や欠落は省く。
+const METRIC_LABELS = [
+  ["distinct_files",      (v) => `対象ファイル${num(v)}件`],
+  ["distinct_folders",    (v) => `フォルダ${num(v)}`],
+  ["window_minutes",      (v) => `直近${v}分`],
+  ["deleted_after_read",  (v) => Number(v) > 0 ? `読取後削除${num(v)}` : null],
+  ["external_like_files", (v) => Number(v) > 0 ? `外部送信様${num(v)}` : null],
+  ["threshold",           (v) => `しきい値${v}`],
+];
+function parseMetric(m) {
+  if (m == null) return null;
+  if (typeof m === "object") return m;
+  try { return JSON.parse(m); } catch { return null; }
+}
+function metricSummary(m) {
+  const o = parseMetric(m);
+  if (!o) return esc(m ?? "");
+  const parts = [];
+  for (const [k, fn] of METRIC_LABELS) {
+    if (o[k] != null) { const s = fn(o[k]); if (s) parts.push(s); }
+  }
+  return parts.length ? esc(parts.join(" / ")) : esc(typeof m === "string" ? m : JSON.stringify(m));
+}
+// 詳細パネル用：サマリー＋ルール/クローズ理由などの補足＋生JSON(折りたたみ)。
+function metricDetailHtml(m) {
+  const o = parseMetric(m);
+  let extra = "";
+  if (o) {
+    if (o.rule)          extra += `<div class="muted small">ルール: ${esc(o.rule)}</div>`;
+    if (o.closed_reason) extra += `<div class="muted small">クローズ理由: ${esc(o.closed_reason)}</div>`;
+    if (o.closed_at)     extra += `<div class="muted small">クローズ日: ${esc(o.closed_at)}</div>`;
+  }
+  const raw = esc(typeof m === "string" ? m : JSON.stringify(m ?? ""));
+  return `<div>${metricSummary(m)}</div>${extra}
+    <details style="margin-top:6px;"><summary class="muted small" style="cursor:pointer;">生データ(JSON)</summary>
+      <pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;margin:6px 0 0;">${raw}</pre></details>`;
+}
+
 function openIncidentPanel(i, refreshFn) {
   // P4b: detected_incidents の status 列のみ変更（PATCH /api/incidents/{id}/status）
   async function patchStatus(status) {
@@ -699,12 +760,12 @@ function openIncidentPanel(i, refreshFn) {
   openPanel("インシデント詳細", `
     <div class="dp-row"><div class="dp-label">ID</div><div class="dp-val">${i.id}</div></div>
     <div class="dp-row"><div class="dp-label">日時</div><div class="dp-val">${fmtTime(i.time)}</div></div>
-    <div class="dp-row"><div class="dp-label">種別</div><div class="dp-val"><span class="tag">${esc(i.type)}</span></div></div>
-    <div class="dp-row"><div class="dp-label">重要度</div><div class="dp-val"><span class="${sevCls(i.severity)}">${esc(i.severity)}</span></div></div>
+    <div class="dp-row"><div class="dp-label">種別</div><div class="dp-val"><span class="tag">${esc(incTypeLabel(i.type))}</span></div></div>
+    <div class="dp-row"><div class="dp-label">重要度</div><div class="dp-val"><span class="${sevCls(i.severity)}">${esc(sevLabel(i.severity))}</span></div></div>
     <div class="dp-row"><div class="dp-label">ユーザー</div><div class="dp-val">${esc(i.user)}</div></div>
     <div class="dp-row"><div class="dp-label">一致件数</div><div class="dp-val">${num(i.matchCount)}</div></div>
-    <div class="dp-row"><div class="dp-label">指標</div><div class="dp-val muted">${esc(i.metric)}</div></div>
-    <div class="dp-row"><div class="dp-label">状態</div><div class="dp-val"><span class="state">${esc(i.status)}</span></div></div>
+    <div class="dp-row"><div class="dp-label">指標</div><div class="dp-val">${metricDetailHtml(i.metric)}</div></div>
+    <div class="dp-row"><div class="dp-label">状態</div><div class="dp-val"><span class="state">${esc(incStatusLabel(i.status))}</span></div></div>
     <div style="padding-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="primary" id="inc-drill">関連ログへ →</button>
       <button id="inc-ack"   ${i.status==="ack"||i.status==="closed"?"disabled":""}>確認</button>
@@ -728,17 +789,17 @@ async function incidents() {
   const body = list.map((i) => `
     <tr class="clickrow-inc" data-id="${i.id}">
       <td>${fmtTime(i.time)}</td>
-      <td><span class="tag">${esc(i.type)}</span></td>
-      <td><span class="${sevCls(i.severity)}">${esc(i.severity)}</span></td>
+      <td><span class="tag">${esc(incTypeLabel(i.type))}</span></td>
+      <td><span class="${sevCls(i.severity)}">${esc(sevLabel(i.severity))}</span></td>
       <td>${esc(i.user)}</td>
       <td>${num(i.matchCount)}</td>
-      <td class="muted">${esc(i.metric)}</td>
-      <td><span class="state">${esc(i.status)}</span></td>
+      <td class="muted">${metricSummary(i.metric)}</td>
+      <td><span class="state">${esc(incStatusLabel(i.status))}</span></td>
     </tr>`).join("") || `<tr><td colspan="7" class="muted">なし</td></tr>`;
 
   view.innerHTML = `
     <h1>検知インシデント</h1>
-    <div class="sub">大量持ち出し（BULK_CONTENT_READ）/ 部署外アクセス（CROSS_DEPT_ACCESS）等。行クリックで詳細を表示します。</div>
+    <div class="sub">部署外アクセス・大量読み取り（持ち出し前兆）・外部コピー疑い 等を検知します。行クリックで詳細を表示します。</div>
     <div class="card">
       <table>
         <thead><tr><th>日時</th><th>種別</th><th>重要度</th><th>ユーザー</th><th>一致件数</th><th>指標</th><th>状態</th></tr></thead>
