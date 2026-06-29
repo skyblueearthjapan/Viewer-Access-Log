@@ -8,4 +8,10 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <!-- P3: Live データ層。viewer ロール読み取り専用。書込エンドポイント追加なし。 -->
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.*" />
+  </ItemGroup>
+
 </Project>

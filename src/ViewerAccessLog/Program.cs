@@ -10,13 +10,24 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy.CamelCase));
 });
 
-// データ源。今は Sample。後で本番ソース（SFE SQLite + Audit PG + 同期キャッシュ）に差し替える。
+// データ源。DataMode=Sample（既定）または DataMode=Live を切り替える。
+// Live: appsettings.json "Live" セクションを LiveOptions にバインドして CacheLogSource を使用。
+//       SyncWorker (BackgroundService) が SFE catalog.db + AuditLogger PostgreSQL から
+//       cache.db へ増分同期する。サーバーへの書込エンドポイントは存在しない。
 var mode = builder.Configuration["DataMode"] ?? "Sample";
-builder.Services.AddSingleton<ILogSource>(_ => mode switch
+
+if (string.Equals(mode, "Live", StringComparison.OrdinalIgnoreCase))
 {
-    // "Live" => new CacheSource(...),  // P3 で実装
-    _ => new SampleLogSource(),
-});
+    var liveOpts = builder.Configuration.GetSection("Live").Get<LiveOptions>() ?? new LiveOptions();
+    builder.Services.AddSingleton(liveOpts);
+    builder.Services.AddSingleton<ILogSource, CacheLogSource>();
+    builder.Services.AddHostedService<SyncWorker>();
+}
+else
+{
+    builder.Services.AddSingleton<ILogSource>(_ => new SampleLogSource());
+}
+
 builder.Services.AddSingleton<LogService>();
 
 var app = builder.Build();

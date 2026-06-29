@@ -69,7 +69,7 @@ public sealed class LogService(ILogSource source)
         var last = source.LastSync();
         var latest = source.AuditLatestEvent();
         int lag = last is { } l && latest is { } e ? (int)(l - e).TotalSeconds : 0;
-        return new HealthInfo("Sample", last, Math.Abs(lag), latest, source.Gaps(), source.Collectors());
+        return new HealthInfo(source.DataMode, last, Math.Abs(lag), latest, source.Gaps(), source.Collectors());
     }
 
     public IReadOnlyList<AlertItem> Alerts() => source.Alerts();

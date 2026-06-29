@@ -46,6 +46,7 @@ public sealed class SampleLogSource : ILogSource
         new CollectorState("lineworks-mtsv", "SFE SQLite / 同期Worker",  Day.AddHours(10).AddMinutes(20), 720, "遅延"),
     };
 
+    public string DataMode => "Sample";
     public IReadOnlyList<AccessRow> All() => _rows;
     public IReadOnlyList<GapWindow> Gaps() => _gaps;
     public DateTimeOffset? LastSync() => Day.AddHours(10).AddMinutes(32);          // 直近同期

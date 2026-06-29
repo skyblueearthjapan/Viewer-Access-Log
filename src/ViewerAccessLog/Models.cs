@@ -169,11 +169,14 @@ public record SettingsData(
     IReadOnlyList<AppSetting> AppSettings);
 
 /// <summary>
-/// ログ取得元の抽象。今は SampleLogSource（サンプル）。
-/// 後で SfeSqliteSource(🟦) + AuditPgSource(🟥灰) + 同期キャッシュに差し替える。
+/// ログ取得元の抽象。Sample / Live を透過的に切り替える。
+///   Sample → SampleLogSource（組込サンプルデータ）
+///   Live   → CacheLogSource（cache.db + AuditLogger PG 読み取り専用）
 /// </summary>
 public interface ILogSource
 {
+    /// <summary>"Sample" または "Live"。HealthInfo.DataMode に表示する。</summary>
+    string DataMode { get; }
     IReadOnlyList<AccessRow> All();
     IReadOnlyList<GapWindow> Gaps();
     DateTimeOffset? LastSync();
