@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.Negotiate;
 using ViewerAccessLog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,12 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy.CamelCase));
 });
 
+// P4a: Windows 認証（Negotiate/Kerberos/NTLM）で操作者を特定する。
+// 読み取り系エンドポイントは匿名可のまま変更しない。
+// 書込エンドポイントのみ .RequireAuthorization() を付与する。
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+builder.Services.AddAuthorization();
+
 // データ源。DataMode=Sample（既定）または DataMode=Live を切り替える。
 // Live: appsettings.json "Live" セクションを LiveOptions にバインドして CacheLogSource を使用。
 //       SyncWorker (BackgroundService) が SFE catalog.db + AuditLogger PostgreSQL から
@@ -25,6 +32,11 @@ if (string.Equals(mode, "Live", StringComparison.OrdinalIgnoreCase))
     builder.Services.AddSingleton(liveOpts);
     builder.Services.AddSingleton<ILogSource, CacheLogSource>();
     builder.Services.AddHostedService<SyncWorker>();
+
+    // P4a: config_editor ロール書込基盤。未設定時は書込 API が 503 を返す（接続は作らない）。
+    if (liveOpts.IsConfigWriteEnabled)
+        builder.Services.AddSingleton(new ConfigWriter(
+            liveOpts.ConfigPg.ConnectionString, liveOpts.ConfigPg.Schema));
 }
 else
 {
@@ -37,6 +49,10 @@ var app = builder.Build();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// P4a: 認証/認可ミドルウェア（静的ファイルの後ろに置く）。
+app.UseAuthentication();
+app.UseAuthorization();
 
 static string[]? SplitCsv(string? s) =>
     string.IsNullOrWhiteSpace(s) ? null : s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -129,9 +145,102 @@ app.MapGet("/api/incidents", (LogService svc) => Results.Ok(svc.Incidents()));
 app.MapGet("/api/health", (LogService svc) => Results.Ok(svc.Health()));
 app.MapGet("/api/filters", (LogService svc) => Results.Ok(svc.Filters()));
 
-// P4 設定一括取得（読み取りのみ。書込エンドポイントは P4 の限定書込ロールで実装予定）。
-// サーバーへ書き込むエンドポイントは一切存在しない（クライアント側モックのみ）。
+// P4 設定一括取得（読み取りのみ。ログ本体は常に読み取り専用堅持）。
 app.MapGet("/api/settings", (LogService svc) => Results.Ok(svc.Settings()));
+
+// ====================================================================
+// P4a 書込エンドポイント（全て .RequireAuthorization()）
+// 書込は設定テーブル(app_settings / detection_exclusions)のみ。
+// config_editor ロール専用接続 ConfigWriter 経由。ログ本体には一切書かない。
+// ConfigWriter 未設定（ConfigPg プレースホルダー残存）の場合は 503 を返す。
+// ====================================================================
+
+// 書込 API 共通ヘルパー：Windows 認証で特定した操作者名を取得する。
+static string Op(HttpContext c) => c.User?.Identity?.Name ?? "(unknown)";
+
+// ConfigWriter が DI に登録されているか確認し、なければ null（→503 を返す）。
+static ConfigWriter? GetWriter(HttpContext ctx) =>
+    ctx.RequestServices.GetService<ConfigWriter>();
+
+// ---- app_settings ----------------------------------------------------
+
+// PUT /api/appsettings/{key}
+// body: { "value": "新しい値" }
+// 成功: 200 { key, value }　失敗: 503 / 500
+app.MapPut("/api/appsettings/{key}", async (string key, AppSettingUpdate body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpsertAppSettingAsync(key, body.Value, Op(ctx));
+        return Results.Ok(new { key, value = body.Value });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+}).RequireAuthorization();
+
+// ---- detection_exclusions --------------------------------------------
+
+// POST /api/exclusions
+// body: DetectionExclusion (Id は無視し RETURNING id を使用)
+// 成功: 201 + 作成オブジェクト（新 Id 含む）
+app.MapPost("/api/exclusions", async (DetectionExclusion body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        var newId   = await writer.InsertExclusionAsync(body, Op(ctx));
+        var created = body with { Id = newId };
+        return Results.Created($"/api/exclusions/{newId}", created);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+}).RequireAuthorization();
+
+// PUT /api/exclusions/{id}
+// body: DetectionExclusion (Id はパスパラメータを優先)
+// 成功: 200 + 更新後オブジェクト　行なし: 500
+app.MapPut("/api/exclusions/{id:int}", async (int id, DetectionExclusion body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpdateExclusionAsync(id, body, Op(ctx));
+        return Results.Ok(body with { Id = id });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+}).RequireAuthorization();
+
+// DELETE /api/exclusions/{id}
+// 成功: 204　行なし: 500
+app.MapDelete("/api/exclusions/{id:int}", async (int id, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.DeleteExclusionAsync(id, Op(ctx));
+        return Results.NoContent();
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+}).RequireAuthorization();
 
 var url = builder.Configuration["Urls"] ?? "http://localhost:5099";
 app.Run(url);

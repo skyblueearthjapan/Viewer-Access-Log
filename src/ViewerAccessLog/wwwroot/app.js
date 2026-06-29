@@ -155,7 +155,28 @@ function openModal(title, bodyHtml, saveFn) {
   $("#mc-x").onclick      = close;
   $("#mc-cancel").onclick = close;
   ov.onclick = (e) => { if (e.target === ov) close(); };
-  $("#mc-save").onclick = () => { if (saveFn() !== false) { close(); showToast(PROTO_MSG); } };
+  // P4a: saveFn が Promise を返す場合は API 呼出。
+  // false を返した場合はバリデーションエラー（モーダルを閉じない）。
+  // undefined/null を返した場合はクライアントモック（PROTO_MSG トースト）。
+  $("#mc-save").onclick = async () => {
+    const result = saveFn();
+    if (result === false) return;
+    if (result && typeof result.then === "function") {
+      const btn = $("#mc-save");
+      btn.disabled = true;
+      try {
+        await result;
+        close();
+        showToast("保存しました");
+      } catch (e) {
+        showToast("エラー: " + (e.message || String(e)));
+      } finally {
+        btn.disabled = false;
+      }
+    } else {
+      close(); showToast(PROTO_MSG);
+    }
+  };
 }
 
 // Escape キーで両パネル・モーダルを閉じる
@@ -941,21 +962,40 @@ async function settings() {
       <table><thead><tr><th>#</th><th>ユーザー</th><th>プロセス</th><th>パス</th><th>理由</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
   }
+  // P4a: 検知除外は実 API（POST/PUT/DELETE）を使用する。
+  // サーバーは config_editor ロール専用接続で設定テーブルのみに書き込み、
+  // config_audit_log に操作者・変更内容を記録する。
   function bindExclusions(el) {
     $(".btn-add", el).onclick = () => openModal("検知除外追加", exclForm(), () => {
       const e = collectExcl(); if (!e) return false;
-      S.exclusions.push(e); renderTab("exclusions");
+      return fetch("/api/exclusions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(e)
+      }).then((r) => r.ok ? r.json()
+          : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+        .then((created) => { S.exclusions.push(created); renderTab("exclusions"); });
     });
-    $$(".btn-del", el).forEach((b) => b.onclick = () => {
+    $$(".btn-del", el).forEach((b) => b.onclick = async () => {
       if (!confirm("この除外設定を削除しますか？")) return;
-      const idx = S.exclusions.findIndex((x) => x.id === Number(b.dataset.id));
-      if (idx >= 0) { S.exclusions.splice(idx, 1); renderTab("exclusions"); showToast(PROTO_MSG); }
+      const id = Number(b.dataset.id);
+      try {
+        const r = await fetch(`/api/exclusions/${id}`, { method: "DELETE" });
+        if (!r.ok) throw new Error(await r.text());
+        const idx = S.exclusions.findIndex((x) => x.id === id);
+        if (idx >= 0) { S.exclusions.splice(idx, 1); renderTab("exclusions"); }
+        showToast("削除しました");
+      } catch (e) { showToast("エラー: " + (e.message || String(e))); }
     });
     $$(".btn-edit", el).forEach((b) => b.onclick = () => {
       const e = S.exclusions.find((x) => x.id === Number(b.dataset.id)); if (!e) return;
       openModal("検知除外編集", exclForm(e), () => {
         const upd = collectExcl(e.id); if (!upd) return false;
-        Object.assign(e, upd); renderTab("exclusions");
+        return fetch(`/api/exclusions/${e.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        }).then((r) => r.ok ? r.json()
+            : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+          .then((updated) => { Object.assign(e, updated); renderTab("exclusions"); });
       });
     });
   }
@@ -1012,7 +1052,25 @@ async function settings() {
         if (s) s.value = inp.value;
       };
     });
-    $("#as-save", el).onclick = () => showToast(PROTO_MSG);
+    // P4a: app_settings は実 API（PUT /api/appsettings/{key}）を使用する。
+    // 表示中の prefixes に属する設定キーを全て 1 件ずつ順次保存する。
+    $("#as-save", el).onclick = async () => {
+      const items = S.appSettings.filter((s) => prefixes.some((p) => s.key.startsWith(p)));
+      let err = null;
+      for (const s of items) {
+        try {
+          const r = await fetch(`/api/appsettings/${encodeURIComponent(s.key)}`, {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value: s.value })
+          });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error((j && j.detail) || r.statusText);
+          }
+        } catch (e) { err = e; break; }
+      }
+      showToast(err ? "エラー: " + (err.message || String(err)) : "設定を保存しました");
+    };
   }
 }
 

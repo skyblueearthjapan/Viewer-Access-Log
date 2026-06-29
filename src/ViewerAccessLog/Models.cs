@@ -158,6 +158,9 @@ public record UserFolderGrant(int Id, string User, string Kind, string Value);
 /// <summary>アプリ設定（key-value）。app_settings テーブル相当。</summary>
 public record AppSetting(string Key, string Value, string Description);
 
+/// <summary>P4a: PUT /api/appsettings/{key} のリクエストボディ。</summary>
+public record AppSettingUpdate(string Value);
+
 /// <summary>設定一括取得（/api/settings の返値）。</summary>
 public record SettingsData(
     IReadOnlyList<MonitoredFolder> Folders,

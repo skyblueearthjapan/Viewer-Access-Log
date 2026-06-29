@@ -8,11 +8,13 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
-  <!-- P3: Live データ層。viewer ロール読み取り専用。書込エンドポイント追加なし。 -->
+  <!-- P3: Live データ層。viewer ロール読み取り専用。 -->
+  <!-- P4a: config_editor 書込基盤 + Windows 認証（操作者特定）。書込は設定テーブルのみ。 -->
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="8.0.*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="8.0.*" />
   </ItemGroup>
 
 </Project>
