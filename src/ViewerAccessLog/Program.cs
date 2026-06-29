@@ -68,6 +68,20 @@ static string CsvEsc(string? s)
         ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
 }
 
+// ファイル列のフルパス（UI の fullPath と同等）。🟦ビューアーは Folder(経路)+File(名) を結合し、
+// 先頭の SFE 表示名「技術部データ」を実フォルダ名「技術部」に揃える。🟥/⬜ は File が既にフルパス。
+static string FullPath(AccessRow r)
+{
+    if (r.Source == SourceKind.Viewer && !string.IsNullOrEmpty(r.Folder))
+    {
+        var b = r.Folder.TrimEnd('\\', '/');
+        if (b.StartsWith("技術部データ", StringComparison.Ordinal))
+            b = "技術部" + b["技術部データ".Length..];
+        return string.IsNullOrEmpty(r.File) ? b : b + "\\" + r.File;
+    }
+    return r.File ?? "";
+}
+
 app.MapGet("/api/logs", (string? from, string? to, string? user, string? sources,
                          string? kinds, string? q, string? dept,
                          string? sort, string? dir,
@@ -100,7 +114,7 @@ app.MapGet("/api/logs.csv", (string? from, string? to, string? user, string? sou
         sb.AppendLine(string.Join(",", new[]
         {
             CsvEsc(t), CsvEsc(r.Source.ToString()), CsvEsc(r.Dept), CsvEsc(r.User),
-            CsvEsc(r.Action), CsvEsc(r.File), CsvEsc(r.Pc), CsvEsc(r.Ip),
+            CsvEsc(r.Action), CsvEsc(FullPath(r)), CsvEsc(r.Pc), CsvEsc(r.Ip),
             CsvEsc(r.Success ? "OK" : "拒否"), CsvEsc(r.Note),
         }));
     }

@@ -54,7 +54,8 @@ function shortFile(path) {
 // 🟥直接/⬜未帰属: file が既にフルパスなので Data\ 以降に短縮。
 function fullPath(r) {
   if (r.source === "viewer" && r.folder) {
-    const base = String(r.folder).replace(/[\\/]+$/, "");
+    // 先頭の SFE 表示名「技術部データ」を実フォルダ名「技術部」に揃える（直接アクセスと統一）。
+    const base = String(r.folder).replace(/[\\/]+$/, "").replace(/^技術部データ(?=\\|$)/, "技術部");
     return r.file ? base + "\\" + r.file : base;
   }
   return shortFile(r.file);
