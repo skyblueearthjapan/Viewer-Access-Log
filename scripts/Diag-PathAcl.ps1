@@ -33,12 +33,16 @@ $path = Invoke-Command -ComputerName lineworks-mtsv -Credential $mc -ArgumentLis
 if ([string]::IsNullOrWhiteSpace($path)) { Write-Host "no gijutsu-bu path found for user '$targetUser'"; return }
 Write-Host ("DB folder_path: " + $path)
 
-# 2) D:\Data\... -> \\lineworks-sv\Data\...  (UNC, read ACL from workstation with current creds)
-$unc = $path -replace '^[A-Za-z]:\\', '\\lineworks-sv\'
+# 2) normalize any prefix (D:\Data\... or \\*\Data\...) to \\lineworks-sv\Data\...
+$marker = 'Data\'
+$idx = $path.IndexOf($marker)
+if ($idx -lt 0) { Write-Host ("cannot find 'Data\' in path: " + $path); return }
+$unc = '\\lineworks-sv\' + $path.Substring($idx)
 Write-Host ("UNC: " + $unc)
 Write-Host ""
 
 # 3) walk up to and including the dept folder, printing each level's ACL
+$ErrorActionPreference = 'Continue'   # do not stop on icacls stderr
 $cur = $unc
 $guard = 0
 while ($cur -and $cur.Contains($dept) -and $guard -lt 20) {
@@ -46,7 +50,7 @@ while ($cur -and $cur.Contains($dept) -and $guard -lt 20) {
   Write-Host "==================================================================="
   Write-Host ("ACL: " + $cur)
   Write-Host "-------------------------------------------------------------------"
-  & icacls "$cur" 2>&1 | ForEach-Object { Write-Host $_ }
+  (& icacls "$cur" 2>&1) | ForEach-Object { Write-Host $_ }
   Write-Host ""
   $parent = Split-Path -Path $cur -Parent
   if (-not $parent -or $parent -eq $cur) { break }
