@@ -107,8 +107,13 @@ public sealed class CacheLogSource : ILogSource, IDisposable
         return _cachedRows;
     }
 
-    /// <summary>Gaps は当面空（仕様通り）。</summary>
-    public IReadOnlyList<GapWindow> Gaps() => [];
+    /// <summary>監査GAP（収集停滞）を collector_state から検出して返す。</summary>
+    public IReadOnlyList<GapWindow> Gaps()
+    {
+        if (_pg is null) return [];
+        try { return _pg.ReadGapsAsync().GetAwaiter().GetResult(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Gaps() failed"); return []; }
+    }
 
     public DateTimeOffset? LastSync()
     {
@@ -186,8 +191,13 @@ public sealed class CacheLogSource : ILogSource, IDisposable
         }
     }
 
-    /// <summary>Live モードでは P4 設定は未実装のため空を返す。</summary>
-    public SettingsData Settings() => EmptySettings;
+    /// <summary>設定タブ用に AuditLogger の設定テーブル群を読み取って返す（読み取りのみ）。</summary>
+    public SettingsData Settings()
+    {
+        if (_pg is null) return EmptySettings;
+        try { return _pg.ReadSettingsAsync().GetAwaiter().GetResult(); }
+        catch (Exception ex) { _logger.LogError(ex, "Settings() failed"); return EmptySettings; }
+    }
 
     public void Dispose() => _pg?.Dispose();
 

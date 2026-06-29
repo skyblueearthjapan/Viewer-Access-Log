@@ -261,6 +261,95 @@ public sealed class AuditPgReader : IDisposable
         catch { return null; }
     }
 
+    // ---- 設定(P4設定の読み取り)・GAP（読み取りのみ）-----------------------
+
+    /// <summary>汎用: SQL を実行し各行を map で射影してリスト化（テーブル欠落/権限不足時は空）。</summary>
+    private async Task<List<T>> QueryListAsync<T>(string sql, Func<NpgsqlDataReader, T> map, CancellationToken ct)
+    {
+        var list = new List<T>();
+        try
+        {
+            await using var conn = await _ds.OpenConnectionAsync(ct);
+            await using var cmd  = new NpgsqlCommand(sql, conn) { CommandTimeout = 30 };
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            while (await r.ReadAsync(ct)) list.Add(map((NpgsqlDataReader)r));
+        }
+        catch { /* テーブル無し/権限不足など — 部分的に空 */ }
+        return list;
+    }
+
+    /// <summary>AuditLogger の設定テーブル群を読み取り SettingsData を返す（読み取り専用）。</summary>
+    public async Task<SettingsData> ReadSettingsAsync(CancellationToken ct = default)
+    {
+        static string S(NpgsqlDataReader r, int i)  => r.IsDBNull(i) ? "" : r.GetString(i);
+        static string? Sn(NpgsqlDataReader r, int i) => r.IsDBNull(i) ? null : r.GetString(i);
+        static int I(NpgsqlDataReader r, int i)     => Convert.ToInt32(r.GetValue(i));
+
+        var folders = await QueryListAsync(
+            $"SELECT id, server_name, folder_path, importance::text, monitor_read, monitor_write, monitor_delete, enabled FROM {_schema}.monitored_folders ORDER BY server_name, folder_path",
+            r => new MonitoredFolder(I(r,0), S(r,1), S(r,2), S(r,3), r.GetBoolean(4), r.GetBoolean(5), r.GetBoolean(6), r.GetBoolean(7)), ct);
+
+        var users = await QueryListAsync(
+            $"SELECT id, domain_name, user_name, display_name, department, role, enabled FROM {_schema}.users ORDER BY user_name",
+            r => new UserConfig(I(r,0), S(r,1), S(r,2), S(r,3), S(r,4), S(r,5), r.GetBoolean(6)), ct);
+
+        var rules = await QueryListAsync(
+            $"SELECT id, rule_name, condition_type, severity::text, COALESCE(target_folder,target_user,target_server,''), COALESCE(threshold_count,0), COALESCE(time_window_minutes,0), only_off_hours, enabled FROM {_schema}.alert_rules ORDER BY rule_name",
+            r => new AlertRule(I(r,0), S(r,1), S(r,2), S(r,3), S(r,4), I(r,5), I(r,6), r.GetBoolean(7), r.GetBoolean(8)), ct);
+
+        var excl = await QueryListAsync(
+            $"SELECT id, COALESCE(user_pattern,''), process_pattern, path_regex, COALESCE(reason,'') FROM {_schema}.detection_exclusions ORDER BY id",
+            r => new DetectionExclusion(I(r,0), S(r,1), Sn(r,2), Sn(r,3), S(r,4)), ct);
+
+        var common = await QueryListAsync(
+            $"SELECT (row_number() OVER (ORDER BY folder_top))::int, folder_top, COALESCE(note,'') FROM {_schema}.common_folders ORDER BY folder_top",
+            r => new CommonFolder(I(r,0), S(r,1), S(r,2)), ct);
+
+        var grants = await QueryListAsync(
+            $"SELECT id, user_name, kind, value FROM {_schema}.user_folder_grants ORDER BY user_name, kind, value",
+            r => new UserFolderGrant(I(r,0), S(r,1), S(r,2), S(r,3)), ct);
+
+        var app = await QueryListAsync(
+            $"SELECT key, value FROM {_schema}.app_settings ORDER BY key",
+            r => new AppSetting(S(r,0), S(r,1), ""), ct);
+
+        return new SettingsData(folders, users, rules, excl, common, grants, app);
+    }
+
+    /// <summary>
+    /// 監査GAP: collector_state から「停滞中の収集」を検出する（last_event_time が15分以上前、
+    /// または status が GAP/RESET）。＝現在の途切れを GapWindow(最終イベント〜now) として返す。
+    /// 過去のGAP区間の完全復元は collector_state だけでは不可（現在状態のみ保持のため）。
+    /// </summary>
+    public async Task<IReadOnlyList<GapWindow>> ReadGapsAsync(CancellationToken ct = default)
+    {
+        var gaps = new List<GapWindow>();
+        try
+        {
+            await using var conn = await _ds.OpenConnectionAsync(ct);
+            await using var cmd  = new NpgsqlCommand(
+                $"SELECT server_name, COALESCE(status, last_status, 'OK'), last_event_time FROM {_schema}.collector_state", conn) { CommandTimeout = 30 };
+            await using var r = await cmd.ExecuteReaderAsync(ct);
+            var now = DateTimeOffset.UtcNow;
+            while (await r.ReadAsync(ct))
+            {
+                var server = r.IsDBNull(0) ? "(unknown)" : r.GetString(0);
+                var status = r.IsDBNull(1) ? "OK" : r.GetString(1);
+                DateTimeOffset? lastEvt = r.IsDBNull(2) ? null : r.GetFieldValue<DateTimeOffset>(2);
+                var stale = lastEvt is { } le && (now - le).TotalMinutes > 15;
+                var bad   = status.IndexOf("GAP", StringComparison.OrdinalIgnoreCase) >= 0
+                         || status.IndexOf("RESET", StringComparison.OrdinalIgnoreCase) >= 0;
+                if ((stale || bad) && lastEvt is { } start)
+                {
+                    var mins = (int)(now - start).TotalMinutes;
+                    gaps.Add(new GapWindow(start, now, $"{server} collector stalled (status={status}, ~{mins}m)"));
+                }
+            }
+        }
+        catch { }
+        return gaps;
+    }
+
     // ---- 内部ヘルパー -------------------------------------------------------
 
     /// <summary>部署名からフォルダパス一致正規表現パターンを生成する（Npgsql パラメータで安全に渡す）。</summary>
