@@ -167,6 +167,15 @@ public record AlertStatusUpdate(string Status);
 /// <summary>P4b: PATCH /api/incidents/{id}/status のリクエストボディ。</summary>
 public record IncidentStatusUpdate(string Status);
 
+/// <summary>部署別利用率（/api/departments の1行）。セッション数ベース。</summary>
+public record DeptAdoption(
+    string Dept,
+    long   Viewer,
+    long   Direct,
+    long   Unknown,
+    long   Total,
+    double Adoption);   // Viewer/(Viewer+Direct)、Unknown除外、分母0なら0
+
 /// <summary>設定一括取得（/api/settings の返値）。</summary>
 public record SettingsData(
     IReadOnlyList<MonitoredFolder> Folders,

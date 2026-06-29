@@ -1443,9 +1443,56 @@ async function settings() {
 }
 
 // ===================================================================
+// ⑧ 部署別利用率  #/depts
+// ===================================================================
+async function depts() {
+  view.innerHTML = `
+    <h1>部署別利用率</h1>
+    <div class="sub">部署ごとにビューアー経由（🟦）/ 直接（🟥）/ 未帰属（⬜）のセッション数と利用率を表示します。利用率 = 🟦/(🟦+🟥)。</div>
+    ${periodBarHtml()}
+    <div class="card">
+      <table id="dept-tbl">
+        <thead><tr>
+          <th>部署</th>
+          <th class="cv">🟦 ビューアー</th>
+          <th class="cd">🟥 直接</th>
+          <th class="cu">⬜ 未帰属</th>
+          <th>合計</th>
+          <th>利用率</th>
+        </tr></thead>
+        <tbody id="dept-rows"><tr><td colspan="6" class="muted">読み込み中…</td></tr></tbody>
+      </table>
+    </div>`;
+
+  bindPeriodBar(loadDepts);
+
+  async function loadDepts() {
+    const list = await getJson("/api/departments?" + dateParams());
+    document.getElementById("dept-rows").innerHTML = list.length
+      ? list.map((d) => {
+          const pct = Math.round(d.adoption * 100);
+          return `<tr>
+            <td><b>${esc(d.dept)}</b></td>
+            <td class="cv">${num(d.viewer)}</td>
+            <td class="cd">${num(d.direct)}</td>
+            <td class="cu">${num(d.unknown)}</td>
+            <td>${num(d.total)}</td>
+            <td class="dept-rate-cell">
+              <span class="dept-rate-pct">${pct}%</span>
+              <span class="dept-rate-bar"><span class="hbfill v" style="width:${pct}%"></span></span>
+            </td>
+          </tr>`;
+        }).join("")
+      : `<tr><td colspan="6" class="muted">データなし</td></tr>`;
+  }
+
+  await loadDepts();
+}
+
+// ===================================================================
 // ルーター
 // ===================================================================
-const ROUTES = { dashboard, search, users, alerts, incidents, status, settings };
+const ROUTES = { dashboard, search, users, depts, alerts, incidents, status, settings };
 
 function router() {
   closePanel();

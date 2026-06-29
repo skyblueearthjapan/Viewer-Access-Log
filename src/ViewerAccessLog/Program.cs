@@ -139,6 +139,12 @@ app.MapGet("/api/dashboard", (string? from, string? to, string? dept, LogService
     return Results.Ok(svc.Dashboard(query));
 });
 
+app.MapGet("/api/departments", (string? from, string? to, string? dept, LogService svc) =>
+{
+    var query = new LogQuery(ParseDate(from), ParseDate(to), null, null, null, null, Dept: dept);
+    return Results.Ok(svc.Departments(query));
+});
+
 app.MapGet("/api/users", (string? from, string? to, string? dept, LogService svc) =>
 {
     var query = new LogQuery(ParseDate(from), ParseDate(to), null, null, null, null, Dept: dept);

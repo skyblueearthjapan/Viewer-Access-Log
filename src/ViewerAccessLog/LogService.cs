@@ -186,6 +186,27 @@ public sealed class LogService(ILogSource source)
     /// <summary>P4 設定取得（読み取りのみ。書込は P4 の限定書込ロール）。</summary>
     public SettingsData Settings() => source.Settings();
 
+    /// <summary>部署別利用率（セッション数ベース）。Live=SQL、Sample=LINQ。</summary>
+    public IReadOnlyList<DeptAdoption> Departments(LogQuery q)
+    {
+        if (IsLive) return Cache.DepartmentsSql(q);
+
+        // Sample: 生件数（セッション集計より単純でよい）。
+        return Filtered(q, applySourceKind: false)
+            .GroupBy(r => r.Dept)
+            .Select(g =>
+            {
+                long v   = g.Count(r => r.Source == SourceKind.Viewer);
+                long d   = g.Count(r => r.Source == SourceKind.Direct);
+                long u   = g.Count(r => r.Source == SourceKind.Unknown);
+                long tot = v + d + u;
+                double ad = (v + d) == 0 ? 0 : Math.Round((double)v / (v + d), 3);
+                return new DeptAdoption(g.Key, v, d, u, tot, ad);
+            })
+            .OrderByDescending(x => x.Total)
+            .ToList();
+    }
+
     public object Filters()
     {
         if (IsLive)

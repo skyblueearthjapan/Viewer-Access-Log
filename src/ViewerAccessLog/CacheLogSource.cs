@@ -548,6 +548,44 @@ public sealed class CacheLogSource : ILogSource, IDisposable
         }
     }
 
+    /// <summary>部署別利用率：dept毎にセッション数(viewer/direct/unknown/total)と利用率を返す。Total降順。</summary>
+    public IReadOnlyList<DeptAdoption> DepartmentsSql(LogQuery q)
+    {
+        try
+        {
+            using var conn = OpenRead();
+            using var cmd  = conn.CreateCommand();
+            var where = new StringBuilder("WHERE 1=1");
+            ApplyFilters(cmd, where, q, applySourceKind: false);
+            cmd.CommandText =
+                $"SELECT dept, " +
+                $"COUNT(DISTINCT CASE WHEN source='viewer'  THEN ({SessKey}) END) v, " +
+                $"COUNT(DISTINCT CASE WHEN source='direct'  THEN ({SessKey}) END) d, " +
+                $"COUNT(DISTINCT CASE WHEN source='unknown' THEN ({SessKey}) END) u, " +
+                $"COUNT(DISTINCT ({SessKey})) total " +
+                $"FROM access_rows {where} " +
+                "GROUP BY dept ORDER BY total DESC, dept";
+            var result = new List<DeptAdoption>();
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                var dept  = r.GetString(0);
+                long v    = r.IsDBNull(1) ? 0 : r.GetInt64(1);
+                long d    = r.IsDBNull(2) ? 0 : r.GetInt64(2);
+                long u    = r.IsDBNull(3) ? 0 : r.GetInt64(3);
+                long tot  = r.IsDBNull(4) ? 0 : r.GetInt64(4);
+                double ad = (v + d) == 0 ? 0 : Math.Round((double)v / (v + d), 3);
+                result.Add(new DeptAdoption(dept, v, d, u, tot, ad));
+            }
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DepartmentsSql failed");
+            return [];
+        }
+    }
+
     /// <summary>フィルタ候補：DISTINCT user / DISTINCT dept（sources/kinds は固定列挙のため LogService 側）。</summary>
     public (string[] Users, string[] Depts) FiltersSql()
     {

@@ -15,11 +15,14 @@ using Microsoft.Data.Sqlite;
 public sealed class SfeSqliteSource : IDisposable
 {
     private readonly SqliteConnection _conn;
+    private readonly string           _dept;
 
-    public SfeSqliteSource(string dbPath)
+    /// <param name="dept">この catalog.db が属する部署名（全行の Dept に固定付与）。</param>
+    public SfeSqliteSource(string dbPath, string dept)
     {
         _conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly;Cache=Shared");
         _conn.Open();
+        _dept = dept;
     }
 
     /// <summary>
@@ -66,7 +69,8 @@ public sealed class SfeSqliteSource : IDisposable
                 time = DateTimeOffset.UtcNow;
 
             var user   = StripDomain(rawUser);
-            var dept   = ExtractDept(tpath);
+            // catalog.db は opts.Dept のビューアー専用 = Dept を固定付与（ExtractDept は使わない）。
+            var dept   = _dept;
             var folder = NormalizeBreadcrumb(tpath);   // '技術部 › 設計書' → '技術部\設計書'
             var (kind, label) = MapAction(action);
             var note   = success == 0 && failRsn is not null ? failRsn : null;
@@ -106,16 +110,6 @@ public sealed class SfeSqliteSource : IDisposable
         3 => (ActionKind.Read,   "エラー読取"),
         _ => (ActionKind.Read,   "フォルダ参照"),   // 0 = ListFolder
     };
-
-    /// <summary>TargetPath '技術部 › 電気設計 › 資料' の先頭セグメントを部署名として返す。</summary>
-    private static string ExtractDept(string? tpath)
-    {
-        if (string.IsNullOrWhiteSpace(tpath)) return "(不明)";
-        // '›' / '>' / '\' / '/' どれでも分割
-        var seg = tpath.Split(new[] { '›', '>', '\\', '/' },
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return seg.Length > 0 ? seg[0] : "(不明)";
-    }
 
     /// <summary>'技術部 › 電気設計 › 資料' → '技術部\電気設計\資料'</summary>
     private static string? NormalizeBreadcrumb(string? tpath)

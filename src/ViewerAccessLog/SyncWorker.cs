@@ -67,7 +67,8 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
             return;
         }
 
-        using var sfe   = new SfeSqliteSource(path);
+        // opts.Dept を渡してビューアー行の Dept を統一する（直接/未帰属と部署名を合算可能にする）。
+        using var sfe   = new SfeSqliteSource(path, opts.Dept);
         using var cache = CacheDb.Open(opts.CachePath);
 
         var lastId = CacheDb.GetLastId(cache, "viewer");

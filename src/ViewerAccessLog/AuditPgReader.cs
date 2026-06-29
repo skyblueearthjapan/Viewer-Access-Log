@@ -77,7 +77,8 @@ public sealed class AuditPgReader : IDisposable
     }
 
     /// <summary>
-    /// ⬜ Unknown: サービス/NULL ユーザーによるアクセス（MTSV$ は除外・ビューアー二重計上防止）。全部署対象。
+    /// ⬜ Unknown: user_name が NULL の真に未帰属なアクセスのみ。MTSV$(ビューアー代理・二重計上防止)と
+    /// サービスアカウント(svc-*・システム監視)は除外＝どのソースにも出さない。全部署対象。
     /// </summary>
     public async Task<IReadOnlyList<(long SrcId, AccessRow Row)>> ReadUnknownRowsAsync(
         long lastId, DateTimeOffset? since = null, int batch = 500, bool bulk = false,
@@ -91,8 +92,7 @@ public sealed class AuditPgReader : IDisposable
                        process_name, host(source_ip) AS source_ip
                 FROM {_schema}.audit_logs
                 WHERE event_time >= @since AND event_time < @until
-                  AND (user_name IS NULL OR user_name ~* 'svc[-_]')
-                  AND user_name !~* 'MTSV\$'
+                  AND user_name IS NULL
                   AND is_content_read = TRUE
                   AND result::text = 'Success'
                   AND COALESCE(file_path,'') NOT ILIKE '%:Zone.Identifier'
@@ -109,8 +109,7 @@ public sealed class AuditPgReader : IDisposable
                        process_name, host(source_ip) AS source_ip
                 FROM {_schema}.audit_logs
                 WHERE id > @lastId
-                  AND (user_name IS NULL OR user_name ~* 'svc[-_]')
-                  AND user_name !~* 'MTSV\$'
+                  AND user_name IS NULL
                   AND is_content_read = TRUE
                   AND result::text = 'Success'
                   AND COALESCE(file_path,'') NOT ILIKE '%:Zone.Identifier'

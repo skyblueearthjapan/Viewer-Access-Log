@@ -122,6 +122,12 @@ a{color:var(--primary);}
 .cv{color:var(--viewer);font-weight:600;} .cd{color:var(--direct);font-weight:700;} .cu{color:var(--unknown);}
 tr.clickable{cursor:pointer;} tr.clickable:hover{background:var(--primary-light);}
 
+/* ---- 部署別利用率バー ---- */
+.dept-rate-cell{white-space:nowrap;display:flex;align-items:center;gap:8px;}
+.dept-rate-pct{width:38px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}
+.dept-rate-bar{display:inline-block;width:90px;height:10px;background:#eef1f5;border-radius:6px;overflow:hidden;vertical-align:middle;}
+.dept-rate-bar .hbfill{height:100%;display:block;border-radius:6px;}
+
 /* ---- タイムライン ---- */
 .timeline{display:flex;flex-direction:column;gap:6px;}
 .tl{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;border-left:4px solid var(--border);background:#fafbfc;font-size:13px;flex-wrap:wrap;}
