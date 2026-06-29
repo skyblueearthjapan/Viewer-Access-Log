@@ -2,20 +2,33 @@
 # ASCII-only on purpose: Windows PowerShell 5.1 mis-decodes non-ASCII .ps1 without a BOM.
 # The Japanese folder token is built at runtime from code points (see $G).
 $ErrorActionPreference = 'Continue'
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
-$OutputEncoding = [Text.Encoding]::UTF8
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
+try { $OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 $env:PGCLIENTENCODING = 'UTF8'
 Write-Host "===== Viewer-Access-Log : P2 read-only check (MTSV) ====="
 
-# ---- psql ----
-$psql = Get-ChildItem 'C:\Program Files\PostgreSQL\*\bin\psql.exe' -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty FullName
+# ---- psql (broad discovery: PATH, common install dirs on C:/D:, then service binary dir) ----
+$psql = (Get-Command psql.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
+if (-not $psql) {
+  foreach ($glob in 'C:\Program Files\PostgreSQL\*\bin\psql.exe','C:\Program Files (x86)\PostgreSQL\*\bin\psql.exe','D:\Program Files\PostgreSQL\*\bin\psql.exe','D:\PostgreSQL\*\bin\psql.exe','D:\Apps\PostgreSQL\*\bin\psql.exe') {
+    $hit = Get-ChildItem $glob -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if ($hit) { $psql = $hit; break }
+  }
+}
+if (-not $psql) {
+  $svc = Get-CimInstance Win32_Service -Filter "Name like 'postgresql%'" -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($svc -and $svc.PathName) {
+    $bin = Split-Path (($svc.PathName -replace '^"','') -split '"')[0] -Parent
+    if ($bin -and (Test-Path (Join-Path $bin 'psql.exe'))) { $psql = Join-Path $bin 'psql.exe' }
+  }
+}
 Write-Host ("psql.exe : " + ($(if ($psql) { $psql } else { 'NOT FOUND' })))
 
 # ---- AuditLogger connection string (auto-discover) ----
 $conn = $null; $src = $null
 $cands = Get-ChildItem -Path 'D:\Apps','C:\Apps','D:\AuditLogger','C:\AuditLogger' -Recurse -Filter 'appsettings*.json' -ErrorAction SilentlyContinue |
-         Where-Object { Select-String -Path $_.FullName -Pattern 'audit_logger|AuditDb' -Quiet -ErrorAction SilentlyContinue }
+         Where-Object { Select-String -Path $_.FullName -Pattern 'audit_logger|AuditDb' -Quiet -ErrorAction SilentlyContinue } |
+         Sort-Object { if ($_.Name -match 'Production') { 0 } else { 1 } }   # prefer Production (real password)
 foreach ($f in $cands) {
   try {
     $j  = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
