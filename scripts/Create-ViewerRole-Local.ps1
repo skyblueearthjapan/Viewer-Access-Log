@@ -27,7 +27,8 @@ Invoke-Command -ComputerName lineworks-mtsv -Credential $mc -ArgumentList $pgpw,
            Select-Object -First 1 -ExpandProperty FullName)
   if (-not $psql) { Write-Host 'psql.exe not found on MTSV'; return }
   $env:PGPASSWORD = $pgpw
-  $sqlText | & $psql -U postgres -h localhost -d audit_logger -v ON_ERROR_STOP=1 -v vpw=$vpw -f -
+  $sql = $sqlText.Replace('__VPW__', $vpw.Replace("'", "''"))   # escape single quotes for SQL literal
+  $sql | & $psql -U postgres -h localhost -d audit_logger -v ON_ERROR_STOP=1 -f -
   Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
 }
 Write-Host "`n(done. If the viewer role was created/granted with no error -> success. Paste any error output.)"
