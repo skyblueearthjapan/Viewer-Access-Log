@@ -22,6 +22,13 @@ nav a .ic{width:18px;text-align:center;}
 nav a:hover{background:#f3f6fb;}
 nav a.active{background:var(--primary-light);border-left-color:var(--primary);color:var(--primary-dark);font-weight:600;}
 main{flex:1;padding:18px 22px;overflow:auto;min-height:0;}
+/* 各ページ上部の「見出し＋操作部」を固定する。負マージンで main のパディングを打ち消し上端・全幅に密着。 */
+.page-head{position:sticky;top:0;z-index:20;background:var(--bg);margin:-18px -22px 14px;padding:14px 22px 10px;border-bottom:1px solid var(--border);}
+.page-head>h1{margin-top:0;}
+.page-head>:last-child{margin-bottom:0;}
+/* page-head 内の期間バー等は下マージンを詰める（見た目の間延び防止） */
+.page-head .period-bar,.page-head .srcfilter{margin-bottom:10px;}
+.page-head .card{margin-bottom:0;}
 h1{font-size:18px;margin:0 0 4px;}
 .sub{color:var(--muted);font-size:13px;margin-bottom:14px;}
 .muted{color:var(--muted);} .small{font-size:12px;}

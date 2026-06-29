@@ -292,9 +292,11 @@ async function dashboard() {
     </tr>`).join("") || `<tr><td colspan="6" class="muted">なし</td></tr>`;
 
   view.innerHTML = `
-    <h1>ダッシュボード</h1>
-    <div class="sub">ビューアー経由（🟦）/ サーバー直接（🟥）/ 未帰属（⬜）で全社アクセスの効果を測定します。</div>
-    ${periodBarHtml()}
+    <div class="page-head">
+      <h1>ダッシュボード</h1>
+      <div class="sub">ビューアー経由（🟦）/ サーバー直接（🟥）/ 未帰属（⬜）で全社アクセスの効果を測定します。</div>
+      ${periodBarHtml()}
+    </div>
     ${kpisHtml}
     <div class="grid2">
       <div class="card">
@@ -370,6 +372,7 @@ function savePresets(p) { localStorage.setItem(LS_PRESETS, JSON.stringify(p)); }
 
 async function search() {
   view.innerHTML = `
+    <div class="page-head">
     <h1>ログ検索</h1>
     <div class="sub">🟦 ビューアー経由 / 🟥 サーバー直接 / ⬜ 未帰属 を区別して全社アクセスを検索します。</div>
     ${periodBarHtml()}
@@ -401,6 +404,7 @@ async function search() {
         <label><input type="checkbox" value="login">ログイン</label>
       </div>
       <div id="presets-row" class="presets-row"></div>
+    </div>
     </div>
     <div class="card">
       <h2>検索結果 <span id="count" class="muted"></span></h2>
@@ -568,8 +572,10 @@ async function users(rest) {
     </tr>`).join("") || `<tr><td colspan="6" class="muted">該当なし</td></tr>`;
 
   view.innerHTML = `
-    <h1>ユーザー別</h1>
-    <div class="sub">ユーザーごとに 🟦/🟥/⬜ を横断表示。行クリックでタイムライン詳細を開きます。</div>
+    <div class="page-head">
+      <h1>ユーザー別</h1>
+      <div class="sub">ユーザーごとに 🟦/🟥/⬜ を横断表示。行クリックでタイムライン詳細を開きます。</div>
+    </div>
     <div class="card">
       <table>
         <thead><tr><th>ユーザー</th><th>部署</th><th>🟦 ビューアー</th><th>🟥 直接</th><th>⬜ 未帰属</th><th>最終アクセス</th></tr></thead>
@@ -622,8 +628,10 @@ async function userDetail(name) {
   const drillBtn = `<button class="qbtn" onclick="drillToSearch({user:'${esc(d.user)}',sources:['viewer','direct','unknown'],dept:'',q:''})">ログ検索で絞り込む →</button>`;
 
   view.innerHTML = `
-    <h1><a href="#/users" class="back">ユーザー別</a> / ${userCell(d.user)}</h1>
-    <div class="sub">部署: <b>${esc(d.dept)}</b> ・ 期間内 ${num(total)} 件 &nbsp;${drillBtn}</div>
+    <div class="page-head">
+      <h1><a href="#/users" class="back">ユーザー別</a> / ${userCell(d.user)}</h1>
+      <div class="sub">部署: <b>${esc(d.dept)}</b> ・ 期間内 ${num(total)} 件 &nbsp;${drillBtn}</div>
+    </div>
     <div class="kpis">
       <div class="kpi viewer"><div class="lbl">🟦 ビューアー経由</div><div class="num">${num(d.viewer)}</div></div>
       <div class="kpi direct"><div class="lbl">🟥 サーバー直接</div><div class="num">${num(d.direct)}</div></div>
@@ -684,8 +692,10 @@ async function alerts() {
     </tr>`).join("") || `<tr><td colspan="7" class="muted">なし</td></tr>`;
 
   view.innerHTML = `
-    <h1>アラート</h1>
-    <div class="sub">ルール検知の一覧。行クリックで該当ユーザーのログを検索。「確認」「クローズ」は alert_histories の status 列のみ変更します。</div>
+    <div class="page-head">
+      <h1>アラート</h1>
+      <div class="sub">ルール検知の一覧。行クリックで該当ユーザーのログを検索。「確認」「クローズ」は alert_histories の status 列のみ変更します。</div>
+    </div>
     <div class="card">
       <table>
         <thead><tr><th>日時</th><th>重要度</th><th>ルール</th><th>ユーザー</th><th>件数</th><th>状態</th><th></th></tr></thead>
@@ -830,8 +840,10 @@ async function incidents() {
     </tr>`).join("") || `<tr><td colspan="7" class="muted">なし</td></tr>`;
 
   view.innerHTML = `
-    <h1>検知インシデント</h1>
-    <div class="sub">部署外アクセス・大量読み取り（持ち出し前兆）・外部コピー疑い 等を検知します。行クリックで詳細を表示します。</div>
+    <div class="page-head">
+      <h1>検知インシデント</h1>
+      <div class="sub">部署外アクセス・大量読み取り（持ち出し前兆）・外部コピー疑い 等を検知します。行クリックで詳細を表示します。</div>
+    </div>
     <div class="card">
       <table>
         <thead><tr><th>日時</th><th>種別</th><th>重要度</th><th>ユーザー</th><th>一致件数</th><th>指標</th><th>状態</th></tr></thead>
@@ -871,9 +883,11 @@ async function status() {
     </tr>`).join("") || `<tr><td colspan="4" class="muted">GAPなし</td></tr>`;
 
   view.innerHTML = `
-    <h1>サーバー状態 / 健全性</h1>
-    <div class="sub">コレクター稼働状態・監査GAP区間・最終同期を集約します。</div>
-    ${banner}
+    <div class="page-head">
+      <h1>サーバー状態 / 健全性</h1>
+      <div class="sub">コレクター稼働状態・監査GAP区間・最終同期を集約します。</div>
+      ${banner}
+    </div>
     <div class="card">
       <h2>コレクター状態</h2>
       <table><thead><tr><th>サーバー</th><th>チャネル</th><th>最終イベント</th><th>遅延</th><th>状態</th></tr></thead><tbody>${collectors}</tbody></table>
@@ -908,11 +922,13 @@ async function settings() {
   let activeTab = "folders";
 
   view.innerHTML = `
-    <h1>設定</h1>
-    <div class="health ok">設定変更はサーバーへ送信されます（config_editor ロール・監査ログ記録）。ConfigPg 未設定時は 503 エラーが返ります。</div>
-    <div class="tabs" id="stabs">${TABS.map((t) =>
-      `<button class="tab${t.id === activeTab ? " active" : ""}" data-tab="${t.id}">${t.label}</button>`
-    ).join("")}</div>
+    <div class="page-head">
+      <h1>設定</h1>
+      <div class="health ok">設定変更はサーバーへ送信されます（config_editor ロール・監査ログ記録）。ConfigPg 未設定時は 503 エラーが返ります。</div>
+      <div class="tabs" id="stabs">${TABS.map((t) =>
+        `<button class="tab${t.id === activeTab ? " active" : ""}" data-tab="${t.id}">${t.label}</button>`
+      ).join("")}</div>
+    </div>
     <div id="tab-content"></div>`;
 
   function renderTab(tabId) {
@@ -1447,9 +1463,11 @@ async function settings() {
 // ===================================================================
 async function depts() {
   view.innerHTML = `
-    <h1>部署別利用率</h1>
-    <div class="sub">部署ごとにビューアー経由（🟦）/ 直接（🟥）/ 未帰属（⬜）のセッション数と利用率を表示します。利用率 = 🟦/(🟦+🟥)。</div>
-    ${periodBarHtml()}
+    <div class="page-head">
+      <h1>部署別利用率</h1>
+      <div class="sub">部署ごとにビューアー経由（🟦）/ 直接（🟥）/ 未帰属（⬜）のセッション数と利用率を表示します。利用率 = 🟦/(🟦+🟥)。</div>
+      ${periodBarHtml()}
+    </div>
     <div class="card">
       <table id="dept-tbl">
         <thead><tr>
