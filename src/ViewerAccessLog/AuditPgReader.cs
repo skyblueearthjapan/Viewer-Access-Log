@@ -50,6 +50,8 @@ public sealed class AuditPgReader : IDisposable
                   AND COALESCE(file_name,'') NOT ILIKE '%.lnk'
                   AND COALESCE(file_name,'') NOT ILIKE '%.tmp'
                   AND COALESCE(file_name,'') NOT ILIKE '~$%'
+                  AND (position(chr(92) || 'Data' || chr(92) in COALESCE(folder_path,'') || '|' || COALESCE(file_path,'')) > 0
+                    OR position(chr(92) || 'MTlock関連' || chr(92) in COALESCE(folder_path,'') || '|' || COALESCE(file_path,'')) > 0)
                 LIMIT 200000
                 """
             : $"""
@@ -69,6 +71,8 @@ public sealed class AuditPgReader : IDisposable
                   AND COALESCE(file_name,'') NOT ILIKE '%.lnk'
                   AND COALESCE(file_name,'') NOT ILIKE '%.tmp'
                   AND COALESCE(file_name,'') NOT ILIKE '~$%'
+                  AND (position(chr(92) || 'Data' || chr(92) in COALESCE(folder_path,'') || '|' || COALESCE(file_path,'')) > 0
+                    OR position(chr(92) || 'MTlock関連' || chr(92) in COALESCE(folder_path,'') || '|' || COALESCE(file_path,'')) > 0)
                 ORDER BY id
                 LIMIT @batch
                 """;
@@ -101,6 +105,8 @@ public sealed class AuditPgReader : IDisposable
                   AND COALESCE(file_name,'') NOT ILIKE '%.lnk'
                   AND COALESCE(file_name,'') NOT ILIKE '%.tmp'
                   AND COALESCE(file_name,'') NOT ILIKE '~$%'
+                  AND (position(chr(92) || 'Data' || chr(92) in COALESCE(folder_path,'') || '|' || COALESCE(file_path,'')) > 0
+                    OR position(chr(92) || 'MTlock関連' || chr(92) in COALESCE(folder_path,'') || '|' || COALESCE(file_path,'')) > 0)
                 LIMIT 200000
                 """
             : $"""
@@ -118,6 +124,8 @@ public sealed class AuditPgReader : IDisposable
                   AND COALESCE(file_name,'') NOT ILIKE '%.lnk'
                   AND COALESCE(file_name,'') NOT ILIKE '%.tmp'
                   AND COALESCE(file_name,'') NOT ILIKE '~$%'
+                  AND (position(chr(92) || 'Data' || chr(92) in COALESCE(folder_path,'') || '|' || COALESCE(file_path,'')) > 0
+                    OR position(chr(92) || 'MTlock関連' || chr(92) in COALESCE(folder_path,'') || '|' || COALESCE(file_path,'')) > 0)
                 ORDER BY id
                 LIMIT @batch
                 """;
