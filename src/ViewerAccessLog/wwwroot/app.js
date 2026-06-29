@@ -53,6 +53,27 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"
 const num = (n) => Number(n).toLocaleString();
 const getJson = (url) => fetch(url).then((r) => r.json());
 
+// ユーザー表示名（設定 users.display_name）。アカウント名→表示名。boot()/設定保存後に読み込む。
+// ドリル/検索/遷移は内部的にアカウント名を使うため、ここでは「表示」だけ差し替える。
+let USER_MAP = {};
+function userDisp(name) { return USER_MAP[String(name ?? "").toLowerCase()] || (name ?? ""); }
+function userCell(name) {
+  const raw = String(name ?? "");
+  const d = USER_MAP[raw.toLowerCase()];
+  return d ? `<span title="${esc(raw)}">${esc(d)}</span>` : esc(raw);
+}
+async function loadUserMap() {
+  try {
+    const s = await getJson("/api/settings");
+    const m = {};
+    (s.users || []).forEach((u) => {
+      const acc = String(u.name ?? "").toLowerCase();
+      if (acc && u.display) m[acc] = u.display;
+    });
+    USER_MAP = m;
+  } catch { /* 取得失敗時は空(=アカウント名のまま表示) */ }
+}
+
 /** 現在の共有期間をクエリパラメータにセットする。extra は追加パラメータ {key:value}。 */
 function dateParams(extra) {
   const p = new URLSearchParams();
@@ -124,7 +145,7 @@ function openDetail(r) {
     ["日時",     fmtTime(r.time)],
     ["ソース",   `<span class="src ${r.source}">${SRC_LABEL[r.source]}</span>`],
     ["部署",     esc(r.dept)],
-    ["ユーザー", esc(r.user)],
+    ["ユーザー", userCell(r.user)],
     ["操作",     `<span class="op ${r.kind}">${esc(r.action)}</span>`],
     ["ファイル", `<span class="dp-val file">${esc(r.file || "—")}</span>`],
     ["フォルダ", `<span class="dp-val file">${esc(r.folder || "—")}</span>`],
@@ -229,11 +250,11 @@ async function dashboard() {
     return `<div class="hcol"><div class="hbar">${seg(h.viewer,"v")}${seg(h.direct,"d")}${seg(h.unknown,"u")}</div><div class="hx">${h.hour}時</div></div>`;
   }).join("") || `<div class="muted">データなし</div>`;
 
-  const hbarsHtml = (list, cls, attr) => {
+  const hbarsHtml = (list, cls, attr, labelFn) => {
     const mx = Math.max(1, ...list.map((x) => x.count));
     return list.map((x) => `
       <div class="hbrow clickable" ${attr}="${esc(x.name)}" title="${esc(x.name)} — クリックで検索へ">
-        <span class="hbname">${esc(x.name)}</span>
+        <span class="hbname">${esc(labelFn ? labelFn(x.name) : x.name)}</span>
         <span class="hbtrack"><span class="hbfill ${cls}" style="width:${(x.count / mx) * 100}%"></span></span>
         <span class="hbval">${num(x.count)}</span>
       </div>`).join("") || `<div class="muted">該当なし</div>`;
@@ -255,7 +276,7 @@ async function dashboard() {
     <tr class="clickrow-inc" data-id="${i.id}">
       <td>${fmtTime(i.time)}</td><td><span class="tag">${esc(incTypeLabel(i.type))}</span></td>
       <td><span class="${sevCls(i.severity)}">${esc(sevLabel(i.severity))}</span></td>
-      <td>${esc(i.user)}</td><td>${num(i.matchCount)}</td>
+      <td>${userCell(i.user)}</td><td>${num(i.matchCount)}</td>
       <td class="muted">${metricSummary(i.metric)}</td>
     </tr>`).join("") || `<tr><td colspan="6" class="muted">なし</td></tr>`;
 
@@ -276,7 +297,7 @@ async function dashboard() {
       </div>
       <div class="card">
         <h2>🟥 直接アクセス Top ユーザー <span class="muted small">（クリックで検索）</span></h2>
-        <div class="hbars">${hbarsHtml(d.directTopUsers, "d", "data-drill-user")}</div>
+        <div class="hbars">${hbarsHtml(d.directTopUsers, "d", "data-drill-user", userDisp)}</div>
       </div>
     </div>
     <div class="grid2">
@@ -456,7 +477,7 @@ async function search() {
         <td>${fmtTime(r.time)}</td>
         <td><span class="src ${r.source}">${SRC_LABEL[r.source]}</span></td>
         <td>${esc(r.dept)}</td>
-        <td>${esc(r.user)}</td>
+        <td>${userCell(r.user)}</td>
         <td><span class="op ${r.kind}">${esc(r.action)}</span></td>
         <td class="file">${esc(shortFile(r.file))}${r.note ? ` <span class="muted">— ${esc(r.note)}</span>` : ""}</td>
         <td>${esc(r.pc || "")}${r.ip ? " / " + r.ip.split(".").slice(-1) : ""}</td>
@@ -530,7 +551,7 @@ async function users(rest) {
   const list = await getJson("/api/users?" + dateParams());
   const body = list.map((u) => `
     <tr class="clickable" data-name="${esc(u.user)}">
-      <td><b>${esc(u.user)}</b></td><td>${esc(u.dept)}</td>
+      <td><b>${userCell(u.user)}</b></td><td>${esc(u.dept)}</td>
       <td class="cv">${num(u.viewer)}</td><td class="cd">${num(u.direct)}</td>
       <td class="cu">${num(u.unknown)}</td><td>${fmtTime(u.lastAccess)}</td>
     </tr>`).join("") || `<tr><td colspan="6" class="muted">該当なし</td></tr>`;
@@ -590,7 +611,7 @@ async function userDetail(name) {
   const drillBtn = `<button class="qbtn" onclick="drillToSearch({user:'${esc(d.user)}',sources:['viewer','direct','unknown'],dept:'',q:''})">ログ検索で絞り込む →</button>`;
 
   view.innerHTML = `
-    <h1><a href="#/users" class="back">ユーザー別</a> / ${esc(d.user)}</h1>
+    <h1><a href="#/users" class="back">ユーザー別</a> / ${userCell(d.user)}</h1>
     <div class="sub">部署: <b>${esc(d.dept)}</b> ・ 期間内 ${num(total)} 件 &nbsp;${drillBtn}</div>
     <div class="kpis">
       <div class="kpi viewer"><div class="lbl">🟦 ビューアー経由</div><div class="num">${num(d.viewer)}</div></div>
@@ -640,7 +661,7 @@ async function alerts() {
       <td>${fmtTime(a.time)}</td>
       <td><span class="${sevCls(a.severity)}">${esc(a.severity)}</span></td>
       <td><span class="tag">${esc(a.rule)}</span></td>
-      <td>${esc(a.user)}</td>
+      <td>${userCell(a.user)}</td>
       <td>${num(a.count)}</td>
       <td><span class="state">${esc(a.status)}</span></td>
       <td style="white-space:nowrap">
@@ -762,7 +783,7 @@ function openIncidentPanel(i, refreshFn) {
     <div class="dp-row"><div class="dp-label">日時</div><div class="dp-val">${fmtTime(i.time)}</div></div>
     <div class="dp-row"><div class="dp-label">種別</div><div class="dp-val"><span class="tag">${esc(incTypeLabel(i.type))}</span></div></div>
     <div class="dp-row"><div class="dp-label">重要度</div><div class="dp-val"><span class="${sevCls(i.severity)}">${esc(sevLabel(i.severity))}</span></div></div>
-    <div class="dp-row"><div class="dp-label">ユーザー</div><div class="dp-val">${esc(i.user)}</div></div>
+    <div class="dp-row"><div class="dp-label">ユーザー</div><div class="dp-val">${userCell(i.user)}</div></div>
     <div class="dp-row"><div class="dp-label">一致件数</div><div class="dp-val">${num(i.matchCount)}</div></div>
     <div class="dp-row"><div class="dp-label">指標</div><div class="dp-val">${metricDetailHtml(i.metric)}</div></div>
     <div class="dp-row"><div class="dp-label">状態</div><div class="dp-val"><span class="state">${esc(incStatusLabel(i.status))}</span></div></div>
@@ -791,7 +812,7 @@ async function incidents() {
       <td>${fmtTime(i.time)}</td>
       <td><span class="tag">${esc(incTypeLabel(i.type))}</span></td>
       <td><span class="${sevCls(i.severity)}">${esc(sevLabel(i.severity))}</span></td>
-      <td>${esc(i.user)}</td>
+      <td>${userCell(i.user)}</td>
       <td>${num(i.matchCount)}</td>
       <td class="muted">${metricSummary(i.metric)}</td>
       <td><span class="state">${esc(incStatusLabel(i.status))}</span></td>
@@ -1447,5 +1468,6 @@ window.addEventListener("hashchange", router);
       period.from = period.to = ANCHOR;
     }
   } catch { /* health 取得失敗時はサンプル基準(2026-06-27)のまま */ }
+  await loadUserMap();   // ユーザー表示名マップを先に読み込む
   if (!location.hash) location.hash = "#/dashboard"; else router();
 })();
