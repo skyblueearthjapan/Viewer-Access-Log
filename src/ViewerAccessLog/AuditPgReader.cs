@@ -168,6 +168,12 @@ public sealed class AuditPgReader : IDisposable
             var logDir  = NormPath(dpath);
             var (kind, label) = MapAction(action);
 
+            // 部署に解決しない読み取り（Data共有ルート直下＝パスがスラッシュのみ）は除外。
+            // また MTlock関連\system 配下（VAL自身の配置領域・システムアプリ）も部署アクセスではないので除外。
+            if (dept == "(不明)") continue;
+            var probe = (fpath ?? "") + "|" + (dpath ?? "");
+            if (probe.Contains("\\MTlock関連\\system\\", StringComparison.OrdinalIgnoreCase)) continue;
+
             results.Add((srcId, new AccessRow(
                 Id:      srcId,
                 Time:    time,
