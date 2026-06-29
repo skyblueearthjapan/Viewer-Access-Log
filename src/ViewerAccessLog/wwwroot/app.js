@@ -5,7 +5,25 @@
 // サンプルデータは 2026-06-27 固定。判定に Date.now を使わない。
 // ===================================================================
 const SAMPLE_DATE = "2026-06-27";
-const period = { from: SAMPLE_DATE, to: SAMPLE_DATE };
+// 期間の基準日（アンカー）。Live は実日付(JST)、Sample は固定日。boot() で確定する。
+let ANCHOR = SAMPLE_DATE;
+const period = { from: ANCHOR, to: ANCHOR };
+
+// JST の今日を YYYY-MM-DD で返す（ブラウザのタイムゾーンに依存しない）。
+function jstToday() {
+  return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+}
+// 日付(YYYY-MM-DD)の加算・月初・月末（UTC基準でTZ非依存）。
+function addDays(d, n) {
+  const [y, m, dd] = d.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, dd + n)).toISOString().slice(0, 10);
+}
+function monthStart(d) { const [y, m] = d.split("-"); return `${y}-${m}-01`; }
+function monthEnd(d) {
+  const [y, m] = d.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+}
 
 // P4 書込モック通知文言（全「保存」ボタン共通）
 const PROTO_MSG = "プロトタイプ：本番では P4 の限定書込ロールで保存されます（現在は未永続）";
@@ -17,11 +35,7 @@ const view = document.getElementById("view");
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 
-function nextDay(d) {
-  const dt = new Date(d + "T00:00:00+09:00");
-  dt.setDate(dt.getDate() + 1);
-  return dt.toISOString().slice(0, 10);
-}
+function nextDay(d) { return addDays(d, 1); }
 const fromIso = (d) => d + "T00:00:00+09:00";
 const toIso   = (d) => nextDay(d) + "T00:00:00+09:00";
 
@@ -64,17 +78,17 @@ function periodBarHtml() {
     <input type="date" id="pb-from" value="${period.from}">
     <span class="pb-sep">〜</span>
     <input type="date" id="pb-to" value="${period.to}">
-    <button class="qbtn" data-q="day">当日(06-27)</button>
-    <button class="qbtn" data-q="3days">直近3日(06-25〜06-27)</button>
-    <button class="qbtn" data-q="month">当月(06-01〜06-30)</button>
+    <button class="qbtn" data-q="day">当日(${ANCHOR.slice(5)})</button>
+    <button class="qbtn" data-q="3days">直近3日(${addDays(ANCHOR, -2).slice(5)}〜${ANCHOR.slice(5)})</button>
+    <button class="qbtn" data-q="month">当月(${monthStart(ANCHOR).slice(5)}〜${monthEnd(ANCHOR).slice(5)})</button>
   </div>`;
 }
 function bindPeriodBar(onApply) {
   $$(".qbtn", view).forEach((b) => b.onclick = () => {
     switch (b.dataset.q) {
-      case "day":   period.from = period.to = SAMPLE_DATE; break;
-      case "3days": period.from = "2026-06-25"; period.to = SAMPLE_DATE; break;
-      case "month": period.from = "2026-06-01"; period.to = "2026-06-30"; break;
+      case "day":   period.from = period.to = ANCHOR; break;
+      case "3days": period.from = addDays(ANCHOR, -2); period.to = ANCHOR; break;
+      case "month": period.from = monthStart(ANCHOR); period.to = monthEnd(ANCHOR); break;
     }
     onApply();
   });
@@ -1362,4 +1376,15 @@ document.getElementById("globalq").addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("hashchange", router);
-if (!location.hash) location.hash = "#/dashboard"; else router();
+
+// boot: Live モードなら期間アンカーを実日付(JST)に切り替えてから初回描画する。
+(async function boot() {
+  try {
+    const h = await getJson("/api/health");
+    if (h && String(h.dataMode).toLowerCase() === "live") {
+      ANCHOR = jstToday();
+      period.from = period.to = ANCHOR;
+    }
+  } catch { /* health 取得失敗時はサンプル基準(2026-06-27)のまま */ }
+  if (!location.hash) location.hash = "#/dashboard"; else router();
+})();
