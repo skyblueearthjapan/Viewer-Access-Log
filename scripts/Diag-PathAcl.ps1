@@ -1,4 +1,4 @@
-# READ-ONLY: show the NTFS ACL from a user's actually-read gijutsu-bu path up to the 技術部 root,
+# READ-ONLY: show the NTFS ACL from a user's actually-read gijutsu-bu path up to the dept root,
 # to find where Allow leaks / inheritance is broken (i.e., why a Deny is not effective).
 # Path is fetched from the DB (no manual retyping). icacls is read-only; the share is NOT modified.
 # Run on WORKSTATION: powershell -NoProfile -ExecutionPolicy Bypass -File Diag-PathAcl.ps1
@@ -38,7 +38,7 @@ $unc = $path -replace '^[A-Za-z]:\\', '\\lineworks-sv\'
 Write-Host ("UNC: " + $unc)
 Write-Host ""
 
-# 3) walk up to and including the 技術部 folder, printing each level's ACL
+# 3) walk up to and including the dept folder, printing each level's ACL
 $cur = $unc
 $guard = 0
 while ($cur -and $cur.Contains($dept) -and $guard -lt 20) {
