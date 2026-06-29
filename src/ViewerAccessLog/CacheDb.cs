@@ -81,6 +81,35 @@ internal static class CacheDb
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>指定ソースの last_time（最後に同期した最大 event_time）を取得（未登録/NULL なら null）。</summary>
+    public static DateTimeOffset? GetLastTime(SqliteConnection conn, string source)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT last_time FROM sync_state WHERE source = $s";
+        cmd.Parameters.AddWithValue("$s", source);
+        var v = cmd.ExecuteScalar();
+        return v is string s &&
+               DateTimeOffset.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                   System.Globalization.DateTimeStyles.RoundtripKind, out var d)
+            ? d : null;
+    }
+
+    /// <summary>last_id と last_time（= 同期した最大 event_time）をまとめて更新する。</summary>
+    public static void SetSyncState(SqliteConnection conn, string source, long lastId, DateTimeOffset? lastTime)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO sync_state(source, last_id, last_time)
+            VALUES($s, $id, $t)
+            ON CONFLICT(source) DO UPDATE
+            SET last_id = excluded.last_id, last_time = excluded.last_time
+            """;
+        cmd.Parameters.AddWithValue("$s",  source);
+        cmd.Parameters.AddWithValue("$id", lastId);
+        cmd.Parameters.AddWithValue("$t",  (object?)lastTime?.ToString("o") ?? DBNull.Value);
+        cmd.ExecuteNonQuery();
+    }
+
     /// <summary>
     /// バッチ行を access_rows へ upsert する。
     /// ON CONFLICT(source,src_id) DO NOTHING = 既存行は上書きしない（冪等）。

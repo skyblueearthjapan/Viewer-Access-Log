@@ -5,8 +5,9 @@ namespace ViewerAccessLog;
 /// SFE catalog.db (🟦 Viewer) と AuditLogger PostgreSQL (🟥 Direct / ⬜ Unknown) から
 /// cache.db へ増分同期する。
 ///
-/// 起動時:  LookbackDays 分遡って初期同期（既存 last_id が 0 の場合のみ）
-/// 以降:    SyncIntervalSeconds 間隔で増分同期（id &gt; last_id）
+/// 同期:    event_time の窓を now から過去へ索引で走査（初回は LookbackDays 遡る、
+///          以降は前回同期した最大 event_time = last_time から重ねて）。SyncIntervalSeconds 間隔。
+///          src_id 冪等 upsert。id 増分の正規表現 seq スキャン（タイムアウトで同期停止）を回避。
 ///
 /// 書込は cache.db のみ。audit_logs・AccessLogs への書込は一切行わない。
 /// </summary>
@@ -103,49 +104,44 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
         using var pg    = new AuditPgReader(opts.AuditPg.ConnectionString, opts.AuditPg.Schema, opts.Dept);
         using var cache = CacheDb.Open(opts.CachePath);
 
-        // 初回(lastId=0)は event_time の窓を now から過去へ刻んで索引で走査(seqスキャン回避)。
-        // 以降は id 増分のバッチ取得(軽い)。
+        // 初回も増分も常に event_time の窓を now から過去へ刻んで索引で走査する。
+        // 走査下限 floor = 前回同期した最大 event_time から 10 分重ねた点（無ければ LookbackDays 遡る）。
+        // upsert は src_id 冪等なので重なり分の再取得は無害。これにより CJK 正規表現の
+        // seq スキャン（id 増分方式のタイムアウト）を回避し、同期停止を防ぐ。
         async Task<int> SyncStreamAsync(
             string key,
             Func<long, DateTimeOffset?, DateTimeOffset?, bool, Task<IReadOnlyList<(long SrcId, AccessRow Row)>>> read)
         {
-            var lastId = CacheDb.GetLastId(cache, key);
+            var now      = DateTimeOffset.UtcNow;
+            var window   = TimeSpan.FromHours(2);
+            var lastId   = CacheDb.GetLastId(cache, key);
+            var lastTime = CacheDb.GetLastTime(cache, key);
+
+            var hardFloor = now.AddDays(-opts.LookbackDays);
+            var floor = lastTime is { } lt ? lt - TimeSpan.FromMinutes(10) : hardFloor;
+            if (floor < hardFloor) floor = hardFloor;
+
+            long maxId = lastId;
+            DateTimeOffset? maxTime = lastTime;
             int total = 0;
-            if (isInitial && lastId == 0)
+            var until = now;
+            while (until > floor && !ct.IsCancellationRequested)
             {
-                var floor  = DateTimeOffset.UtcNow.AddDays(-opts.LookbackDays);
-                var window = TimeSpan.FromHours(2);
-                var until  = DateTimeOffset.UtcNow;
-                long maxId = 0;
-                while (until > floor && !ct.IsCancellationRequested)
+                var from = until - window;
+                if (from < floor) from = floor;
+                var rows = await read(0, from, until, true);   // event_time 窓(索引)で取得
+                if (rows.Count > 0)
                 {
-                    var from = until - window;
-                    if (from < floor) from = floor;
-                    var rows = await read(0, from, until, true);   // 窓取得(索引)
-                    if (rows.Count > 0)
-                    {
-                        CacheDb.UpsertRows(cache, key, rows.Select(x => (x.SrcId, x.Row)));
-                        var m = rows.Max(x => x.SrcId);
-                        if (m > maxId) maxId = m;
-                        total += rows.Count;
-                    }
-                    until = from;
-                }
-                if (maxId > 0) CacheDb.SetLastId(cache, key, maxId);
-            }
-            else
-            {
-                while (true)
-                {
-                    var rows = await read(lastId, null, null, false);   // incremental
-                    if (rows.Count == 0) break;
                     CacheDb.UpsertRows(cache, key, rows.Select(x => (x.SrcId, x.Row)));
-                    lastId = rows.Max(x => x.SrcId);
-                    CacheDb.SetLastId(cache, key, lastId);
+                    var mId = rows.Max(x => x.SrcId);
+                    if (mId > maxId) maxId = mId;
+                    var mT = rows.Max(x => x.Row.Time);
+                    if (maxTime is null || mT > maxTime) maxTime = mT;
                     total += rows.Count;
-                    if (rows.Count < 500) break;
                 }
+                until = from;
             }
+            CacheDb.SetSyncState(cache, key, maxId, maxTime ?? lastTime);
             return total;
         }
 
