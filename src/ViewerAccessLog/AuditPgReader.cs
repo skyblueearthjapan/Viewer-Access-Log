@@ -28,25 +28,41 @@ public sealed class AuditPgReader : IDisposable
     /// since が指定された場合はさらに event_time で下限を設ける（初回 LookbackDays 絞り込み用）。
     /// </summary>
     public async Task<IReadOnlyList<(long SrcId, AccessRow Row)>> ReadDirectRowsAsync(
-        long lastId, DateTimeOffset? since = null, int batch = 500, CancellationToken ct = default)
+        long lastId, DateTimeOffset? since = null, int batch = 500, bool bulk = false, CancellationToken ct = default)
     {
-        var sql = $"""
-            SELECT id, event_time, server_name, user_name,
-                   action::text, file_path, folder_path, file_name,
-                   process_name, host(source_ip) AS source_ip
-            FROM {_schema}.audit_logs
-            WHERE id > @lastId
-              AND file_path ILIKE @deptLike          -- trigram索引(ix_audit_filepath_trgm)で高速プレフィルタ
-              AND folder_path ~* @deptPattern         -- 正規表現で精密化(小さな候補集合に対して)
-              AND user_name IS NOT NULL
-              AND user_name !~* 'MTSV\$'
-              AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
-              AND is_content_read = TRUE
-              AND result::text = 'Success'
-              {(since.HasValue ? "AND event_time >= @since" : "")}
-            ORDER BY id
-            LIMIT @batch
-            """;
+        // bulk=初回: id順を付けず file_path ILIKE で trigram索引(ix_audit_filepath_trgm)を使わせ一括取得（高速）。
+        // 非bulk=増分: id > lastId の少量を id順で取得。
+        var sql = bulk
+            ? $"""
+                SELECT id, event_time, server_name, user_name,
+                       action::text, file_path, folder_path, file_name,
+                       process_name, host(source_ip) AS source_ip
+                FROM {_schema}.audit_logs
+                WHERE file_path ILIKE @deptLike
+                  AND folder_path ~* @deptPattern
+                  AND user_name IS NOT NULL
+                  AND user_name !~* 'MTSV\$'
+                  AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
+                  AND is_content_read = TRUE
+                  AND result::text = 'Success'
+                  AND event_time >= @since
+                LIMIT 200000
+                """
+            : $"""
+                SELECT id, event_time, server_name, user_name,
+                       action::text, file_path, folder_path, file_name,
+                       process_name, host(source_ip) AS source_ip
+                FROM {_schema}.audit_logs
+                WHERE id > @lastId
+                  AND folder_path ~* @deptPattern
+                  AND user_name IS NOT NULL
+                  AND user_name !~* 'MTSV\$'
+                  AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
+                  AND is_content_read = TRUE
+                  AND result::text = 'Success'
+                ORDER BY id
+                LIMIT @batch
+                """;
 
         return await FetchAuditRowsAsync(sql, SourceKind.Direct, lastId, since, batch, ct);
     }
@@ -55,24 +71,37 @@ public sealed class AuditPgReader : IDisposable
     /// ⬜ Unknown: サービス/NULL ユーザーによるアクセス（MTSV$ は除外・ビューアー二重計上防止）。
     /// </summary>
     public async Task<IReadOnlyList<(long SrcId, AccessRow Row)>> ReadUnknownRowsAsync(
-        long lastId, DateTimeOffset? since = null, int batch = 500, CancellationToken ct = default)
+        long lastId, DateTimeOffset? since = null, int batch = 500, bool bulk = false, CancellationToken ct = default)
     {
-        var sql = $"""
-            SELECT id, event_time, server_name, user_name,
-                   action::text, file_path, folder_path, file_name,
-                   process_name, host(source_ip) AS source_ip
-            FROM {_schema}.audit_logs
-            WHERE id > @lastId
-              AND file_path ILIKE @deptLike
-              AND folder_path ~* @deptPattern
-              AND (user_name IS NULL OR user_name ~* 'svc[-_]')
-              AND user_name !~* 'MTSV\$'
-              AND is_content_read = TRUE
-              AND result::text = 'Success'
-              {(since.HasValue ? "AND event_time >= @since" : "")}
-            ORDER BY id
-            LIMIT @batch
-            """;
+        var sql = bulk
+            ? $"""
+                SELECT id, event_time, server_name, user_name,
+                       action::text, file_path, folder_path, file_name,
+                       process_name, host(source_ip) AS source_ip
+                FROM {_schema}.audit_logs
+                WHERE file_path ILIKE @deptLike
+                  AND folder_path ~* @deptPattern
+                  AND (user_name IS NULL OR user_name ~* 'svc[-_]')
+                  AND user_name !~* 'MTSV\$'
+                  AND is_content_read = TRUE
+                  AND result::text = 'Success'
+                  AND event_time >= @since
+                LIMIT 200000
+                """
+            : $"""
+                SELECT id, event_time, server_name, user_name,
+                       action::text, file_path, folder_path, file_name,
+                       process_name, host(source_ip) AS source_ip
+                FROM {_schema}.audit_logs
+                WHERE id > @lastId
+                  AND folder_path ~* @deptPattern
+                  AND (user_name IS NULL OR user_name ~* 'svc[-_]')
+                  AND user_name !~* 'MTSV\$'
+                  AND is_content_read = TRUE
+                  AND result::text = 'Success'
+                ORDER BY id
+                LIMIT @batch
+                """;
 
         return await FetchAuditRowsAsync(sql, SourceKind.Unknown, lastId, since, batch, ct);
     }

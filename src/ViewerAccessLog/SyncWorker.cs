@@ -107,40 +107,43 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
             ? DateTimeOffset.UtcNow.AddDays(-opts.LookbackDays)
             : (DateTimeOffset?)null;   // 増分は id のみで管理
 
-        var lastDirect  = CacheDb.GetLastId(cache, "direct");
-        var lastUnknown = CacheDb.GetLastId(cache, "unknown");
-
-        // Direct
-        int directTotal = 0;
-        while (true)
+        // 初回(lastId=0)は trigram索引を使う bulk 取得、以降は id 増分のバッチ取得。
+        async Task<int> SyncStreamAsync(
+            string key,
+            Func<long, DateTimeOffset?, bool, Task<IReadOnlyList<(long SrcId, AccessRow Row)>>> read)
         {
-            // 初回かつ lastId == 0 のときだけ since を使う（既存 DB があれば id ベース）
-            var effectiveSince = (isInitial && lastDirect == 0) ? since : null;
-            var rows = await pg.ReadDirectRowsAsync(lastDirect, effectiveSince, ct: ct);
-            if (rows.Count == 0) break;
-            CacheDb.UpsertRows(cache, "direct", rows.Select(x => (x.SrcId, x.Row)));
-            lastDirect = rows.Max(x => x.SrcId);
-            CacheDb.SetLastId(cache, "direct", lastDirect);
-            directTotal += rows.Count;
-            if (rows.Count < 500) break;
+            var lastId = CacheDb.GetLastId(cache, key);
+            int total = 0;
+            if (isInitial && lastId == 0)
+            {
+                var rows = await read(0, since, true);   // bulk
+                if (rows.Count > 0)
+                {
+                    CacheDb.UpsertRows(cache, key, rows.Select(x => (x.SrcId, x.Row)));
+                    CacheDb.SetLastId(cache, key, rows.Max(x => x.SrcId));
+                    total = rows.Count;
+                }
+            }
+            else
+            {
+                while (true)
+                {
+                    var rows = await read(lastId, null, false);   // incremental
+                    if (rows.Count == 0) break;
+                    CacheDb.UpsertRows(cache, key, rows.Select(x => (x.SrcId, x.Row)));
+                    lastId = rows.Max(x => x.SrcId);
+                    CacheDb.SetLastId(cache, key, lastId);
+                    total += rows.Count;
+                    if (rows.Count < 500) break;
+                }
+            }
+            return total;
         }
 
-        // Unknown
-        int unknownTotal = 0;
-        while (true)
-        {
-            var effectiveSince = (isInitial && lastUnknown == 0) ? since : null;
-            var rows = await pg.ReadUnknownRowsAsync(lastUnknown, effectiveSince, ct: ct);
-            if (rows.Count == 0) break;
-            CacheDb.UpsertRows(cache, "unknown", rows.Select(x => (x.SrcId, x.Row)));
-            lastUnknown = rows.Max(x => x.SrcId);
-            CacheDb.SetLastId(cache, "unknown", lastUnknown);
-            unknownTotal += rows.Count;
-            if (rows.Count < 500) break;
-        }
+        int directTotal  = await SyncStreamAsync("direct",  (l, s, b) => pg.ReadDirectRowsAsync(l, s, bulk: b, ct: ct));
+        int unknownTotal = await SyncStreamAsync("unknown", (l, s, b) => pg.ReadUnknownRowsAsync(l, s, bulk: b, ct: ct));
 
         if (directTotal + unknownTotal > 0)
-            logger.LogInformation("Audit sync: Direct+{D} Unknown+{U} (lastDirect={LD} lastUnknown={LU})",
-                directTotal, unknownTotal, lastDirect, lastUnknown);
+            logger.LogInformation("Audit sync: Direct+{D} Unknown+{U}", directTotal, unknownTotal);
     }
 }
