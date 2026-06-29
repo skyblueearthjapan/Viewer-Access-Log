@@ -44,6 +44,12 @@ public sealed class AuditPgReader : IDisposable
                   AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
                   AND is_content_read = TRUE
                   AND result::text = 'Success'
+                  AND COALESCE(file_path,'') NOT ILIKE '%:Zone.Identifier'
+                  AND COALESCE(file_name,'') NOT ILIKE 'desktop.ini'
+                  AND COALESCE(file_name,'') NOT ILIKE 'thumbs.db'
+                  AND COALESCE(file_name,'') NOT ILIKE '%.lnk'
+                  AND COALESCE(file_name,'') NOT ILIKE '%.tmp'
+                  AND COALESCE(file_name,'') NOT ILIKE '~$%'
                 LIMIT 200000
                 """
             : $"""
@@ -57,6 +63,12 @@ public sealed class AuditPgReader : IDisposable
                   AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
                   AND is_content_read = TRUE
                   AND result::text = 'Success'
+                  AND COALESCE(file_path,'') NOT ILIKE '%:Zone.Identifier'
+                  AND COALESCE(file_name,'') NOT ILIKE 'desktop.ini'
+                  AND COALESCE(file_name,'') NOT ILIKE 'thumbs.db'
+                  AND COALESCE(file_name,'') NOT ILIKE '%.lnk'
+                  AND COALESCE(file_name,'') NOT ILIKE '%.tmp'
+                  AND COALESCE(file_name,'') NOT ILIKE '~$%'
                 ORDER BY id
                 LIMIT @batch
                 """;
@@ -83,6 +95,12 @@ public sealed class AuditPgReader : IDisposable
                   AND user_name !~* 'MTSV\$'
                   AND is_content_read = TRUE
                   AND result::text = 'Success'
+                  AND COALESCE(file_path,'') NOT ILIKE '%:Zone.Identifier'
+                  AND COALESCE(file_name,'') NOT ILIKE 'desktop.ini'
+                  AND COALESCE(file_name,'') NOT ILIKE 'thumbs.db'
+                  AND COALESCE(file_name,'') NOT ILIKE '%.lnk'
+                  AND COALESCE(file_name,'') NOT ILIKE '%.tmp'
+                  AND COALESCE(file_name,'') NOT ILIKE '~$%'
                 LIMIT 200000
                 """
             : $"""
@@ -95,6 +113,12 @@ public sealed class AuditPgReader : IDisposable
                   AND user_name !~* 'MTSV\$'
                   AND is_content_read = TRUE
                   AND result::text = 'Success'
+                  AND COALESCE(file_path,'') NOT ILIKE '%:Zone.Identifier'
+                  AND COALESCE(file_name,'') NOT ILIKE 'desktop.ini'
+                  AND COALESCE(file_name,'') NOT ILIKE 'thumbs.db'
+                  AND COALESCE(file_name,'') NOT ILIKE '%.lnk'
+                  AND COALESCE(file_name,'') NOT ILIKE '%.tmp'
+                  AND COALESCE(file_name,'') NOT ILIKE '~$%'
                 ORDER BY id
                 LIMIT @batch
                 """;

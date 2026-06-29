@@ -32,6 +32,15 @@ public sealed class CacheLogSource : ILogSource, IDisposable
     private const string RowCols =
         "id, source, time, user, dept, action, kind, file, folder, pc, ip, success, note";
 
+    /// <summary>
+    /// 10分バケット・セッションキー（SQLite 集計専用）。
+    /// user + folder + file + 10分窓の組み合わせで重複イベントを1セッションに畳む。
+    /// time は 'yyyy-MM-dd HH:mm:ss'(UTC固定幅)保存なので substr(time,1,15) = 'yyyy-MM-dd HH:m' = 10分バケット。
+    /// 集計の COUNT に使用。ログ検索(Search/SearchAll)は生イベントのまま。
+    /// </summary>
+    private const string SessKey =
+        "user || '|' || COALESCE(folder,'') || '|' || COALESCE(file,'') || '|' || substr(time,1,15)";
+
     public CacheLogSource(LiveOptions opts, ILogger<CacheLogSource> logger)
     {
         _opts   = opts;
@@ -268,7 +277,8 @@ public sealed class CacheLogSource : ILogSource, IDisposable
             {
                 var where = new StringBuilder("WHERE 1=1");
                 ApplyFilters(cmd, where, q, applySourceKind: false);
-                cmd.CommandText = $"SELECT source, COUNT(*) FROM access_rows {where} GROUP BY source";
+                // セッション数 = 10分バケット内の同一 user+folder+file を1件と数える（公平カウント）。
+                cmd.CommandText = $"SELECT source, COUNT(DISTINCT ({SessKey})) FROM access_rows {where} GROUP BY source";
                 using var r = cmd.ExecuteReader();
                 while (r.Read())
                 {
@@ -308,7 +318,8 @@ public sealed class CacheLogSource : ILogSource, IDisposable
                 var where = new StringBuilder("WHERE source IN ('viewer','direct')");
                 ApplyFilters(cmd, where, q, applySourceKind: false);
                 AppendGapExclusions(cmd, where, gaps);
-                cmd.CommandText = $"SELECT source, COUNT(*) FROM access_rows {where} GROUP BY source";
+                // 利用率算出もセッション数ベース（同一バケット重複除外 + GAP/Unknown除外）。
+                cmd.CommandText = $"SELECT source, COUNT(DISTINCT ({SessKey})) FROM access_rows {where} GROUP BY source";
                 using var r = cmd.ExecuteReader();
                 while (r.Read())
                 {
@@ -345,8 +356,9 @@ public sealed class CacheLogSource : ILogSource, IDisposable
             {
                 var where = new StringBuilder("WHERE 1=1");
                 ApplyFilters(cmd, where, q, applySourceKind: false);
+                // セッション数ベースで時間帯別に集計（10分バケット重複除外）。
                 cmd.CommandText =
-                    "SELECT CAST(strftime('%H', datetime(time,'+9 hours')) AS INTEGER) hr, source, COUNT(*) " +
+                    $"SELECT CAST(strftime('%H', datetime(time,'+9 hours')) AS INTEGER) hr, source, COUNT(DISTINCT ({SessKey})) " +
                     $"FROM access_rows {where} GROUP BY hr, source";
                 using var r = cmd.ExecuteReader();
                 while (r.Read())
@@ -372,7 +384,7 @@ public sealed class CacheLogSource : ILogSource, IDisposable
                 var where = new StringBuilder("WHERE source='direct'");
                 ApplyFilters(cmd, where, q, applySourceKind: false);
                 cmd.CommandText =
-                    $"SELECT user, COUNT(*) c FROM access_rows {where} " +
+                    $"SELECT user, COUNT(DISTINCT ({SessKey})) c FROM access_rows {where} " +
                     "GROUP BY user ORDER BY c DESC, user LIMIT 8";
                 using var r = cmd.ExecuteReader();
                 while (r.Read()) directTop.Add(new NameCount(r.GetString(0), r.GetInt64(1)));
@@ -384,7 +396,7 @@ public sealed class CacheLogSource : ILogSource, IDisposable
                 var where = new StringBuilder("WHERE 1=1");
                 ApplyFilters(cmd, where, q, applySourceKind: false);
                 cmd.CommandText =
-                    $"SELECT dept, COUNT(*) c FROM access_rows {where} " +
+                    $"SELECT dept, COUNT(DISTINCT ({SessKey})) c FROM access_rows {where} " +
                     "GROUP BY dept ORDER BY c DESC, dept";
                 using var r = cmd.ExecuteReader();
                 while (r.Read()) deptCounts.Add(new NameCount(r.GetString(0), r.GetInt64(1)));
@@ -396,7 +408,7 @@ public sealed class CacheLogSource : ILogSource, IDisposable
             {
                 var where = new StringBuilder("WHERE 1=1");
                 ApplyFilters(cmd, where, q, applySourceKind: false);
-                cmd.CommandText = $"SELECT kind, COUNT(*) c FROM access_rows {where} GROUP BY kind";
+                cmd.CommandText = $"SELECT kind, COUNT(DISTINCT ({SessKey})) c FROM access_rows {where} GROUP BY kind";
                 using var r = cmd.ExecuteReader();
                 while (r.Read()) kindRaw.Add((r.GetString(0), r.GetInt64(1)));
             }
@@ -428,8 +440,9 @@ public sealed class CacheLogSource : ILogSource, IDisposable
             {
                 var where = new StringBuilder("WHERE 1=1");
                 ApplyFilters(cmd, where, q, applySourceKind: false);
+                // topDept 判定もセッション数（最頻 dept をセッション数で比較）。
                 cmd.CommandText =
-                    $"SELECT user, dept, COUNT(*) c FROM access_rows {where} " +
+                    $"SELECT user, dept, COUNT(DISTINCT ({SessKey})) c FROM access_rows {where} " +
                     "GROUP BY user, dept ORDER BY user, c DESC, dept";
                 using var r = cmd.ExecuteReader();
                 while (r.Read())
@@ -446,11 +459,13 @@ public sealed class CacheLogSource : ILogSource, IDisposable
             {
                 var where = new StringBuilder("WHERE 1=1");
                 ApplyFilters(cmd, where, q, applySourceKind: false);
+                // ユーザー別3色件数をセッション数で（同一 user+folder+file+10分窓を1件に畳む）。
+                // CASE が NULL を返す場合 COUNT(DISTINCT) は NULL を無視するので正しく集計できる。
                 cmd.CommandText =
-                    "SELECT user, " +
-                    "SUM(CASE WHEN source='viewer'  THEN 1 ELSE 0 END), " +
-                    "SUM(CASE WHEN source='direct'  THEN 1 ELSE 0 END), " +
-                    "SUM(CASE WHEN source='unknown' THEN 1 ELSE 0 END), " +
+                    $"SELECT user, " +
+                    $"COUNT(DISTINCT CASE WHEN source='viewer'  THEN ({SessKey}) END), " +
+                    $"COUNT(DISTINCT CASE WHEN source='direct'  THEN ({SessKey}) END), " +
+                    $"COUNT(DISTINCT CASE WHEN source='unknown' THEN ({SessKey}) END), " +
                     "MAX(time) " +
                     $"FROM access_rows {where} GROUP BY user";
                 using var r = cmd.ExecuteReader();
@@ -498,14 +513,19 @@ public sealed class CacheLogSource : ILogSource, IDisposable
             var dept = rows.GroupBy(r => r.Dept)
                 .OrderByDescending(d => d.Count()).ThenBy(d => d.Key).First().Key;
 
+            // セッションキー（C#版）= SQL SessKey と同一定義。10分バケットで重複を畳む。
+            static string SKey(AccessRow r) =>
+                FormattableString.Invariant(
+                    $"{r.User}|{r.Folder ?? ""}|{r.File ?? ""}|{r.Time.UtcDateTime:yyyy-MM-dd HH:m}");
+
             var jst = TimeSpan.FromHours(9);
             var userHourly = Enumerable.Range(0, 24).Select(h =>
             {
                 var hr = rows.Where(r => r.Time.ToOffset(jst).Hour == h).ToList();
                 return new HourPoint(h,
-                    hr.Count(r => r.Source == SourceKind.Viewer),
-                    hr.Count(r => r.Source == SourceKind.Direct),
-                    hr.Count(r => r.Source == SourceKind.Unknown));
+                    hr.Where(r => r.Source == SourceKind.Viewer).Select(SKey).Distinct().LongCount(),
+                    hr.Where(r => r.Source == SourceKind.Direct).Select(SKey).Distinct().LongCount(),
+                    hr.Where(r => r.Source == SourceKind.Unknown).Select(SKey).Distinct().LongCount());
             }).ToList();
 
             var actionBreakdown = rows
@@ -514,10 +534,11 @@ public sealed class CacheLogSource : ILogSource, IDisposable
                 .OrderByDescending(x => x.Count)
                 .ToList();
 
+            // 3色件数はセッション数。timeline(rows)は生イベントのまま（詳細監査証跡）。
             return new UserDetail(rows[0].User, dept,
-                rows.Count(r => r.Source == SourceKind.Viewer),
-                rows.Count(r => r.Source == SourceKind.Direct),
-                rows.Count(r => r.Source == SourceKind.Unknown),
+                rows.Where(r => r.Source == SourceKind.Viewer).Select(SKey).Distinct().LongCount(),
+                rows.Where(r => r.Source == SourceKind.Direct).Select(SKey).Distinct().LongCount(),
+                rows.Where(r => r.Source == SourceKind.Unknown).Select(SKey).Distinct().LongCount(),
                 rows, userHourly, actionBreakdown);
         }
         catch (Exception ex)
