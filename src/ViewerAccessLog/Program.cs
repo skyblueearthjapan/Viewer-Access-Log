@@ -242,5 +242,255 @@ app.MapDelete("/api/exclusions/{id:int}", async (int id, HttpContext ctx) =>
     }
 }).RequireAuthorization();
 
+// ====================================================================
+// P4b 書込エンドポイント（全て .RequireAuthorization()）
+// alert_histories / detected_incidents は status 列のみ変更。他列は一切触れない。
+// ====================================================================
+
+// ---- monitored_folders -----------------------------------------------
+
+app.MapPost("/api/folders", async (MonitoredFolder body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        var newId   = await writer.InsertFolderAsync(body, Op(ctx));
+        var created = body with { Id = newId };
+        return Results.Created($"/api/folders/{newId}", created);
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapPut("/api/folders/{id:int}", async (int id, MonitoredFolder body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpdateFolderAsync(id, body, Op(ctx));
+        return Results.Ok(body with { Id = id });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapDelete("/api/folders/{id:int}", async (int id, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.DeleteFolderAsync(id, Op(ctx));
+        return Results.NoContent();
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+// ---- users -----------------------------------------------------------
+
+app.MapPost("/api/users", async (UserConfig body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        var newId   = await writer.InsertUserAsync(body, Op(ctx));
+        var created = body with { Id = newId };
+        return Results.Created($"/api/users/{newId}", created);
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapPut("/api/users/{id:int}", async (int id, UserConfig body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpdateUserAsync(id, body, Op(ctx));
+        return Results.Ok(body with { Id = id });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapDelete("/api/users/{id:int}", async (int id, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.DeleteUserAsync(id, Op(ctx));
+        return Results.NoContent();
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+// ---- alert_rules -----------------------------------------------------
+
+app.MapPost("/api/rules", async (AlertRule body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        var newId   = await writer.InsertRuleAsync(body, Op(ctx));
+        var created = body with { Id = newId };
+        return Results.Created($"/api/rules/{newId}", created);
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapPut("/api/rules/{id:int}", async (int id, AlertRule body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpdateRuleAsync(id, body, Op(ctx));
+        return Results.Ok(body with { Id = id });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapDelete("/api/rules/{id:int}", async (int id, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.DeleteRuleAsync(id, Op(ctx));
+        return Results.NoContent();
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+// ---- common_folders（PK は folder_top テキスト。id は使わない）---------
+
+app.MapPost("/api/commonfolders", async (CommonFolder body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpsertCommonFolderAsync(body, Op(ctx));
+        return Results.Created($"/api/commonfolders", body);
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapPut("/api/commonfolders", async (CommonFolder body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpsertCommonFolderAsync(body, Op(ctx));
+        return Results.Ok(body);
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapDelete("/api/commonfolders", async (string path, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.DeleteCommonFolderAsync(path, Op(ctx));
+        return Results.NoContent();
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+// ---- user_folder_grants ---------------------------------------------
+
+app.MapPost("/api/usergrants", async (UserFolderGrant body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        var newId   = await writer.InsertGrantAsync(body, Op(ctx));
+        var created = body with { Id = newId };
+        return Results.Created($"/api/usergrants/{newId}", created);
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapPut("/api/usergrants/{id:int}", async (int id, UserFolderGrant body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpdateGrantAsync(id, body, Op(ctx));
+        return Results.Ok(body with { Id = id });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+app.MapDelete("/api/usergrants/{id:int}", async (int id, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.DeleteGrantAsync(id, Op(ctx));
+        return Results.NoContent();
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+// ---- alert_histories / detected_incidents — status のみ変更 ----------
+
+// PATCH /api/alerts/{id}/status
+// body: { "status": "ack" | "closed" }
+// alert_histories の status/acked_by/acked_at 列のみ更新。他列は変更しない。
+app.MapMethods("/api/alerts/{id:long}/status", ["PATCH"],
+    async (long id, AlertStatusUpdate body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpdateAlertStatusAsync(id, body.Status, Op(ctx));
+        return Results.Ok(new { id, status = body.Status });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
+// PATCH /api/incidents/{id}/status
+// body: { "status": "ack" | "closed" }
+// detected_incidents の status 列のみ更新。他列は変更しない。
+app.MapMethods("/api/incidents/{id:long}/status", ["PATCH"],
+    async (long id, IncidentStatusUpdate body, HttpContext ctx) =>
+{
+    var writer = GetWriter(ctx);
+    if (writer is null)
+        return Results.Problem("config write not enabled — ConfigPg not configured", statusCode: 503);
+    try
+    {
+        await writer.UpdateIncidentStatusAsync(id, body.Status, Op(ctx));
+        return Results.Ok(new { id, status = body.Status });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+}).RequireAuthorization();
+
 var url = builder.Configuration["Urls"] ?? "http://localhost:5099";
 app.Run(url);

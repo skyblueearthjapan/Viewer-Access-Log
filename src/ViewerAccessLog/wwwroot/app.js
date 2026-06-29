@@ -609,6 +609,18 @@ async function userDetail(name) {
 // ===================================================================
 async function alerts() {
   const list = await getJson("/api/alerts");
+
+  // P4b: 状態変更ヘルパー（PATCH /api/alerts/{id}/status）
+  async function patchAlertStatus(id, status) {
+    const r = await fetch(`/api/alerts/${id}/status`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status })
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showToast("状態を更新しました");
+    alerts(); // 一覧再取得
+  }
+
   const body = list.map((a) => `
     <tr class="clickable" data-user="${esc(a.user)}" title="${esc(a.user)} のログを検索">
       <td>${fmtTime(a.time)}</td>
@@ -617,28 +629,59 @@ async function alerts() {
       <td>${esc(a.user)}</td>
       <td>${num(a.count)}</td>
       <td><span class="state">${esc(a.status)}</span></td>
-    </tr>`).join("") || `<tr><td colspan="6" class="muted">なし</td></tr>`;
+      <td style="white-space:nowrap">
+        <button class="btn-ack" data-id="${a.id}" data-status="ack"
+          title="確認済みにする" ${a.status==="ack"||a.status==="closed"?"disabled":""}>確認</button>
+        <button class="btn-close-st" data-id="${a.id}" data-status="closed"
+          title="クローズ" ${a.status==="closed"?"disabled":""}>クローズ</button>
+      </td>
+    </tr>`).join("") || `<tr><td colspan="7" class="muted">なし</td></tr>`;
 
   view.innerHTML = `
     <h1>アラート</h1>
-    <div class="sub">ルール検知の一覧（閲覧）。行クリックで該当ユーザーのログを検索します。状態変更は P4 で書込対応予定。</div>
+    <div class="sub">ルール検知の一覧。行クリックで該当ユーザーのログを検索。「確認」「クローズ」は alert_histories の status 列のみ変更します。</div>
     <div class="card">
       <table>
-        <thead><tr><th>日時</th><th>重要度</th><th>ルール</th><th>ユーザー</th><th>件数</th><th>状態</th></tr></thead>
+        <thead><tr><th>日時</th><th>重要度</th><th>ルール</th><th>ユーザー</th><th>件数</th><th>状態</th><th></th></tr></thead>
         <tbody>${body}</tbody>
       </table>
     </div>`;
 
-  // B4: 行クリック → drillToSearch
+  // B4: 行クリック → drillToSearch（ボタンのクリックは伝播しない）
   $$("tr.clickable", view).forEach((tr) => {
-    tr.onclick = () => drillToSearch({ user: tr.dataset.user, sources: ["viewer","direct","unknown"], dept: "", q: "" });
+    tr.onclick = (e) => {
+      if (e.target.tagName === "BUTTON") return;
+      drillToSearch({ user: tr.dataset.user, sources: ["viewer","direct","unknown"], dept: "", q: "" });
+    };
+  });
+  $$(".btn-ack, .btn-close-st", view).forEach((b) => {
+    if (b.disabled) return;
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      try { await patchAlertStatus(Number(b.dataset.id), b.dataset.status); }
+      catch (err) { showToast("エラー: " + (err.message || String(err))); }
+    };
   });
 }
 
 // ===================================================================
 // ⑤ 検知インシデント  #/incidents   (B3: スライドインパネル + B4: ドリルダウン)
 // ===================================================================
-function openIncidentPanel(i) {
+function openIncidentPanel(i, refreshFn) {
+  // P4b: detected_incidents の status 列のみ変更（PATCH /api/incidents/{id}/status）
+  async function patchStatus(status) {
+    try {
+      const r = await fetch(`/api/incidents/${i.id}/status`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      showToast("状態を更新しました");
+      closePanel();
+      if (refreshFn) refreshFn(); // 一覧再取得
+    } catch (e) { showToast("エラー: " + (e.message || String(e))); }
+  }
+
   openPanel("インシデント詳細", `
     <div class="dp-row"><div class="dp-label">ID</div><div class="dp-val">${i.id}</div></div>
     <div class="dp-row"><div class="dp-label">日時</div><div class="dp-val">${fmtTime(i.time)}</div></div>
@@ -648,13 +691,19 @@ function openIncidentPanel(i) {
     <div class="dp-row"><div class="dp-label">一致件数</div><div class="dp-val">${num(i.matchCount)}</div></div>
     <div class="dp-row"><div class="dp-label">指標</div><div class="dp-val muted">${esc(i.metric)}</div></div>
     <div class="dp-row"><div class="dp-label">状態</div><div class="dp-val"><span class="state">${esc(i.status)}</span></div></div>
-    <div style="padding-top:14px;">
+    <div style="padding-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="primary" id="inc-drill">関連ログへ →</button>
+      <button id="inc-ack"   ${i.status==="ack"||i.status==="closed"?"disabled":""}>確認</button>
+      <button id="inc-close" ${i.status==="closed"?"disabled":""}>クローズ</button>
     </div>`);
   document.getElementById("inc-drill").onclick = () => {
     closePanel();
     drillToSearch({ user: i.user, sources: ["viewer","direct","unknown"], dept: "", q: "" });
   };
+  const ackBtn   = document.getElementById("inc-ack");
+  const closeBtn = document.getElementById("inc-close");
+  if (ackBtn   && !ackBtn.disabled)   ackBtn.onclick   = () => patchStatus("ack");
+  if (closeBtn && !closeBtn.disabled) closeBtn.onclick = () => patchStatus("closed");
 }
 
 async function incidents() {
@@ -685,7 +734,7 @@ async function incidents() {
 
   $$(".clickrow-inc", view).forEach((tr) => {
     tr.style.cursor = "pointer";
-    tr.onclick = () => openIncidentPanel(_incMap[Number(tr.dataset.id)]);
+    tr.onclick = () => openIncidentPanel(_incMap[Number(tr.dataset.id)], incidents);
   });
 }
 
@@ -734,24 +783,26 @@ async function status() {
 // ===================================================================
 async function settings() {
   const raw = await getJson("/api/settings");
-  // deep copy でクライアントのみの楽観更新用。サーバーへは一切書き込まない。
+  // deep copy で楽観更新用ローカルコピー（成功後にサーバー応答でマージ）。
   const S = JSON.parse(JSON.stringify(raw));
 
   const TABS = [
-    { id: "folders",    label: "① 監視フォルダ" },
-    { id: "users",      label: "② ユーザー" },
-    { id: "rules",      label: "③ アラートルール" },
-    { id: "exclusions", label: "④ 検知除外" },
-    { id: "notify",     label: "⑤ 通知設定" },
-    { id: "bulk",       label: "⑥ 持ち出し検知" },
-    { id: "crossdept",  label: "⑦ 部署外検知" },
+    { id: "folders",      label: "① 監視フォルダ" },
+    { id: "users",        label: "② ユーザー" },
+    { id: "rules",        label: "③ アラートルール" },
+    { id: "exclusions",   label: "④ 検知除外" },
+    { id: "commonfolders",label: "⑤ 共通フォルダ" },
+    { id: "usergrants",   label: "⑥ フォルダ付与" },
+    { id: "notify",       label: "⑦ 通知設定" },
+    { id: "bulk",         label: "⑧ 持ち出し検知" },
+    { id: "crossdept",    label: "⑨ 部署外検知" },
   ];
 
   let activeTab = "folders";
 
   view.innerHTML = `
-    <h1>設定 <span class="badge-proto">P4 プロトタイプ</span></h1>
-    <div class="health warn">⚠ <b>書込はクライアントのみ（未永続）。</b>「保存」はサーバーへ送信しません。P4 の限定書込ロール実装後に実際の DB に反映されます。</div>
+    <h1>設定</h1>
+    <div class="health ok">設定変更はサーバーへ送信されます（config_editor ロール・監査ログ記録）。ConfigPg 未設定時は 503 エラーが返ります。</div>
     <div class="tabs" id="stabs">${TABS.map((t) =>
       `<button class="tab${t.id === activeTab ? " active" : ""}" data-tab="${t.id}">${t.label}</button>`
     ).join("")}</div>
@@ -762,13 +813,15 @@ async function settings() {
     $$(".tab", view).forEach((t) => t.classList.toggle("active", t.dataset.tab === tabId));
     const el = $("#tab-content");
     switch (tabId) {
-      case "folders":    el.innerHTML = renderFolders();    bindFolders(el);    break;
-      case "users":      el.innerHTML = renderSettUsers();  bindSettUsers(el);  break;
-      case "rules":      el.innerHTML = renderRules();      bindRules(el);      break;
-      case "exclusions": el.innerHTML = renderExclusions(); bindExclusions(el); break;
-      case "notify":     renderAppSettings(el, ["notification."]); break;
-      case "bulk":       renderAppSettings(el, ["detection.bulk.", "detection.offhours."]); break;
-      case "crossdept":  renderAppSettings(el, ["detection.crossdept."]); break;
+      case "folders":       el.innerHTML = renderFolders();       bindFolders(el);       break;
+      case "users":         el.innerHTML = renderSettUsers();     bindSettUsers(el);     break;
+      case "rules":         el.innerHTML = renderRules();         bindRules(el);         break;
+      case "exclusions":    el.innerHTML = renderExclusions();    bindExclusions(el);    break;
+      case "commonfolders": el.innerHTML = renderCommonFolders(); bindCommonFolders(el); break;
+      case "usergrants":    el.innerHTML = renderUserGrants();    bindUserGrants(el);    break;
+      case "notify":        renderAppSettings(el, ["notification."]); break;
+      case "bulk":          renderAppSettings(el, ["detection.bulk.", "detection.offhours."]); break;
+      case "crossdept":     renderAppSettings(el, ["detection.crossdept."]); break;
     }
   }
 
@@ -784,26 +837,61 @@ async function settings() {
         <td><span class="${sevCls(f.importance)}">${esc(f.importance)}</span></td>
         <td>${f.readEnabled?"R":"—"}/${f.writeEnabled?"W":"—"}/${f.deleteEnabled?"D":"—"}</td>
         <td><button class="btn-tog ${f.enabled?"on":"off"}" data-id="${f.id}">${f.enabled?"有効":"無効"}</button></td>
-        <td><button class="btn-edit" data-id="${f.id}">編集</button></td>
+        <td>
+          <button class="btn-edit" data-id="${f.id}">編集</button>
+          <button class="btn-del"  data-id="${f.id}">削除</button>
+        </td>
       </tr>`).join("");
     return `<div class="card"><div class="stb-header"><h2>監視フォルダ</h2><button class="primary btn-add">+ 追加</button></div>
       <table><thead><tr><th>#</th><th>サーバー</th><th>パス</th><th>重要度</th><th>R/W/D</th><th>状態</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
   }
+  // P4b: 監視フォルダは実 API（POST/PUT/DELETE）を使用する。
   function bindFolders(el) {
     $(".btn-add", el).onclick = () => openModal("監視フォルダ追加", folderForm(), () => {
       const f = collectFolder(); if (!f) return false;
-      S.folders.push(f); renderTab("folders");
+      return fetch("/api/folders", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f)
+      }).then((r) => r.ok ? r.json()
+          : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+        .then((created) => { S.folders.push(created); renderTab("folders"); });
     });
-    $$(".btn-tog", el).forEach((b) => b.onclick = () => {
-      const f = S.folders.find((x) => x.id === Number(b.dataset.id));
-      if (f) { f.enabled = !f.enabled; renderTab("folders"); showToast(PROTO_MSG); }
+    $$(".btn-tog", el).forEach((b) => b.onclick = async () => {
+      const f = S.folders.find((x) => x.id === Number(b.dataset.id)); if (!f) return;
+      const upd = Object.assign({}, f, { enabled: !f.enabled });
+      try {
+        const r = await fetch(`/api/folders/${f.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        });
+        if (!r.ok) throw new Error(await r.text());
+        f.enabled = !f.enabled;
+        renderTab("folders");
+        showToast("保存しました");
+      } catch (e) { showToast("エラー: " + (e.message || String(e))); }
+    });
+    $$(".btn-del", el).forEach((b) => b.onclick = async () => {
+      if (!confirm("このフォルダ設定を削除しますか？")) return;
+      const id = Number(b.dataset.id);
+      try {
+        const r = await fetch(`/api/folders/${id}`, { method: "DELETE" });
+        if (!r.ok) throw new Error(await r.text());
+        const idx = S.folders.findIndex((x) => x.id === id);
+        if (idx >= 0) { S.folders.splice(idx, 1); renderTab("folders"); }
+        showToast("削除しました");
+      } catch (e) { showToast("エラー: " + (e.message || String(e))); }
     });
     $$(".btn-edit", el).forEach((b) => b.onclick = () => {
       const f = S.folders.find((x) => x.id === Number(b.dataset.id)); if (!f) return;
       openModal("監視フォルダ編集", folderForm(f), () => {
         const upd = collectFolder(f.id); if (!upd) return false;
-        Object.assign(f, upd); renderTab("folders");
+        return fetch(`/api/folders/${f.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        }).then((r) => r.ok ? r.json()
+            : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+          .then((updated) => { Object.assign(f, updated); renderTab("folders"); });
       });
     });
   }
@@ -844,20 +932,41 @@ async function settings() {
       <table><thead><tr><th>#</th><th>ドメイン&#92;ユーザー名</th><th>表示名</th><th>部署</th><th>ロール</th><th>状態</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
   }
+  // P4b: ユーザーは実 API（POST/PUT/DELETE）を使用する。
   function bindSettUsers(el) {
     $(".btn-add", el).onclick = () => openModal("ユーザー追加", userForm(), () => {
       const u = collectUser(); if (!u) return false;
-      S.users.push(u); renderTab("users");
+      return fetch("/api/users", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(u)
+      }).then((r) => r.ok ? r.json()
+          : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+        .then((created) => { S.users.push(created); renderTab("users"); });
     });
-    $$(".btn-tog", el).forEach((b) => b.onclick = () => {
-      const u = S.users.find((x) => x.id === Number(b.dataset.id));
-      if (u) { u.enabled = !u.enabled; renderTab("users"); showToast(PROTO_MSG); }
+    $$(".btn-tog", el).forEach((b) => b.onclick = async () => {
+      const u = S.users.find((x) => x.id === Number(b.dataset.id)); if (!u) return;
+      const upd = Object.assign({}, u, { enabled: !u.enabled });
+      try {
+        const r = await fetch(`/api/users/${u.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        });
+        if (!r.ok) throw new Error(await r.text());
+        u.enabled = !u.enabled;
+        renderTab("users");
+        showToast("保存しました");
+      } catch (e) { showToast("エラー: " + (e.message || String(e))); }
     });
     $$(".btn-edit", el).forEach((b) => b.onclick = () => {
       const u = S.users.find((x) => x.id === Number(b.dataset.id)); if (!u) return;
       openModal("ユーザー編集", userForm(u), () => {
         const upd = collectUser(u.id); if (!upd) return false;
-        Object.assign(u, upd); renderTab("users");
+        return fetch(`/api/users/${u.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        }).then((r) => r.ok ? r.json()
+            : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+          .then((updated) => { Object.assign(u, updated); renderTab("users"); });
       });
     });
   }
@@ -900,25 +1009,52 @@ async function settings() {
       <table><thead><tr><th>#</th><th>名前</th><th>条件</th><th>重要度</th><th>しきい値/時間窓</th><th>時間帯</th><th>状態</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
   }
+  // P4b: アラートルールは実 API（POST/PUT/DELETE）を使用する。
   function bindRules(el) {
     $(".btn-add", el).onclick = () => openModal("ルール追加", ruleForm(), () => {
       const r = collectRule(); if (!r) return false;
-      S.rules.push(r); renderTab("rules");
+      return fetch("/api/rules", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(r)
+      }).then((rsp) => rsp.ok ? rsp.json()
+          : rsp.json().then((j) => Promise.reject(new Error(j.detail || rsp.statusText))))
+        .then((created) => { S.rules.push(created); renderTab("rules"); });
     });
-    $$(".btn-tog", el).forEach((b) => b.onclick = () => {
-      const r = S.rules.find((x) => x.id === Number(b.dataset.id));
-      if (r) { r.enabled = !r.enabled; renderTab("rules"); showToast(PROTO_MSG); }
+    $$(".btn-tog", el).forEach((b) => b.onclick = async () => {
+      const r = S.rules.find((x) => x.id === Number(b.dataset.id)); if (!r) return;
+      const upd = Object.assign({}, r, { enabled: !r.enabled });
+      try {
+        const rsp = await fetch(`/api/rules/${r.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        });
+        if (!rsp.ok) throw new Error(await rsp.text());
+        r.enabled = !r.enabled;
+        renderTab("rules");
+        showToast("保存しました");
+      } catch (e) { showToast("エラー: " + (e.message || String(e))); }
     });
-    $$(".btn-del", el).forEach((b) => b.onclick = () => {
+    $$(".btn-del", el).forEach((b) => b.onclick = async () => {
       if (!confirm("このルールを削除しますか？")) return;
-      const idx = S.rules.findIndex((x) => x.id === Number(b.dataset.id));
-      if (idx >= 0) { S.rules.splice(idx, 1); renderTab("rules"); showToast(PROTO_MSG); }
+      const id = Number(b.dataset.id);
+      try {
+        const rsp = await fetch(`/api/rules/${id}`, { method: "DELETE" });
+        if (!rsp.ok) throw new Error(await rsp.text());
+        const idx = S.rules.findIndex((x) => x.id === id);
+        if (idx >= 0) { S.rules.splice(idx, 1); renderTab("rules"); }
+        showToast("削除しました");
+      } catch (e) { showToast("エラー: " + (e.message || String(e))); }
     });
     $$(".btn-edit", el).forEach((b) => b.onclick = () => {
       const r = S.rules.find((x) => x.id === Number(b.dataset.id)); if (!r) return;
       openModal("ルール編集", ruleForm(r), () => {
         const upd = collectRule(r.id); if (!upd) return false;
-        Object.assign(r, upd); renderTab("rules");
+        return fetch(`/api/rules/${r.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        }).then((rsp) => rsp.ok ? rsp.json()
+            : rsp.json().then((j) => Promise.reject(new Error(j.detail || rsp.statusText))))
+          .then((updated) => { Object.assign(r, updated); renderTab("rules"); });
       });
     });
   }
@@ -1013,7 +1149,132 @@ async function settings() {
       path: $("#ex-path").value.trim() || null, reason: $("#ex-reason").value.trim() };
   }
 
-  // ---- ⑤⑥⑦ AppSettings キー値フォーム -------------------------------
+  // ---- ⑤ 共通フォルダ（PK は path。id は UI 連番で識別に使わない）---------
+  function renderCommonFolders() {
+    const rows = (S.commonFolders || []).map((f, i) => `
+      <tr>
+        <td>${i + 1}</td>
+        <td class="file" style="font-size:12px">${esc(f.path)}</td>
+        <td class="muted">${esc(f.description || "—")}</td>
+        <td>
+          <button class="btn-edit" data-path="${esc(f.path)}">編集</button>
+          <button class="btn-del"  data-path="${esc(f.path)}">削除</button>
+        </td>
+      </tr>`).join("");
+    return `<div class="card"><div class="stb-header"><h2>共通フォルダ</h2><button class="primary btn-add">+ 追加</button></div>
+      <table><thead><tr><th>#</th><th>フォルダトップ</th><th>説明</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }
+  function bindCommonFolders(el) {
+    $(".btn-add", el).onclick = () => openModal("共通フォルダ追加", cfForm(), () => {
+      const f = collectCf(); if (!f) return false;
+      return fetch("/api/commonfolders", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f)
+      }).then((r) => r.ok ? r.json()
+          : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+        .then((created) => { S.commonFolders.push(created); renderTab("commonfolders"); });
+    });
+    $$(".btn-del", el).forEach((b) => b.onclick = async () => {
+      if (!confirm("この共通フォルダを削除しますか？")) return;
+      const path = b.dataset.path;
+      try {
+        const r = await fetch(`/api/commonfolders?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+        if (!r.ok) throw new Error(await r.text());
+        const idx = S.commonFolders.findIndex((x) => x.path === path);
+        if (idx >= 0) { S.commonFolders.splice(idx, 1); renderTab("commonfolders"); }
+        showToast("削除しました");
+      } catch (e) { showToast("エラー: " + (e.message || String(e))); }
+    });
+    $$(".btn-edit", el).forEach((b) => b.onclick = () => {
+      const f = S.commonFolders.find((x) => x.path === b.dataset.path); if (!f) return;
+      openModal("共通フォルダ編集", cfForm(f), () => {
+        const upd = collectCf(f.id); if (!upd) return false;
+        return fetch("/api/commonfolders", {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        }).then((r) => r.ok ? r.json()
+            : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+          .then((updated) => { Object.assign(f, updated); renderTab("commonfolders"); });
+      });
+    });
+  }
+  function cfForm(f = {}) {
+    return `
+      <div class="sf-row"><label>フォルダトップ（必須）</label><input id="cf-path" value="${esc(f.path||"")}"></div>
+      <div class="sf-row"><label>説明</label><input id="cf-desc" value="${esc(f.description||"")}"></div>`;
+  }
+  function collectCf(existingId) {
+    const path = $("#cf-path")&&$("#cf-path").value.trim(); if (!path) return false;
+    return { id: existingId ?? 0, path, description: $("#cf-desc").value.trim() };
+  }
+
+  // ---- ⑥ フォルダ付与（user_folder_grants）----------------------------
+  function renderUserGrants() {
+    const rows = (S.userGrants || []).map((g) => `
+      <tr>
+        <td>${g.id}</td>
+        <td>${esc(g.user)}</td>
+        <td><span class="tag">${esc(g.kind)}</span></td>
+        <td class="muted file" style="font-size:12px">${esc(g.value)}</td>
+        <td>
+          <button class="btn-edit" data-id="${g.id}">編集</button>
+          <button class="btn-del"  data-id="${g.id}">削除</button>
+        </td>
+      </tr>`).join("");
+    return `<div class="card"><div class="stb-header"><h2>フォルダ付与</h2><button class="primary btn-add">+ 追加</button></div>
+      <table><thead><tr><th>#</th><th>ユーザー</th><th>種別</th><th>値</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }
+  function bindUserGrants(el) {
+    $(".btn-add", el).onclick = () => openModal("フォルダ付与追加", grantForm(), () => {
+      const g = collectGrant(); if (!g) return false;
+      return fetch("/api/usergrants", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(g)
+      }).then((r) => r.ok ? r.json()
+          : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+        .then((created) => { S.userGrants.push(created); renderTab("usergrants"); });
+    });
+    $$(".btn-del", el).forEach((b) => b.onclick = async () => {
+      if (!confirm("このフォルダ付与設定を削除しますか？")) return;
+      const id = Number(b.dataset.id);
+      try {
+        const r = await fetch(`/api/usergrants/${id}`, { method: "DELETE" });
+        if (!r.ok) throw new Error(await r.text());
+        const idx = S.userGrants.findIndex((x) => x.id === id);
+        if (idx >= 0) { S.userGrants.splice(idx, 1); renderTab("usergrants"); }
+        showToast("削除しました");
+      } catch (e) { showToast("エラー: " + (e.message || String(e))); }
+    });
+    $$(".btn-edit", el).forEach((b) => b.onclick = () => {
+      const g = S.userGrants.find((x) => x.id === Number(b.dataset.id)); if (!g) return;
+      openModal("フォルダ付与編集", grantForm(g), () => {
+        const upd = collectGrant(g.id); if (!upd) return false;
+        return fetch(`/api/usergrants/${g.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(upd)
+        }).then((r) => r.ok ? r.json()
+            : r.json().then((j) => Promise.reject(new Error(j.detail || r.statusText))))
+          .then((updated) => { Object.assign(g, updated); renderTab("usergrants"); });
+      });
+    });
+  }
+  function grantForm(g = {}) {
+    const KINDS = ["dept","postbox"];
+    return `
+      <div class="sf-row"><label>ユーザー名（必須）</label><input id="gr-user" value="${esc(g.user||"")}"></div>
+      <div class="sf-row"><label>種別</label>
+        <select id="gr-kind">${KINDS.map((v) => `<option${g.kind===v?" selected":""}>${v}</option>`).join("")}</select></div>
+      <div class="sf-row"><label>値（フォルダパス / 部署名）</label><input id="gr-val" value="${esc(g.value||"")}"></div>`;
+  }
+  function collectGrant(existingId) {
+    const user = $("#gr-user")&&$("#gr-user").value.trim(); if (!user) return false;
+    return { id: existingId ?? 0,
+      user, kind: $("#gr-kind").value, value: $("#gr-val").value.trim() };
+  }
+
+  // ---- ⑦⑧⑨ AppSettings キー値フォーム --------------------------------
   function renderAppSettings(el, prefixes) {
     const items = S.appSettings.filter((s) => prefixes.some((p) => s.key.startsWith(p)));
     const formHtml = items.map((s) => {

@@ -161,6 +161,12 @@ public record AppSetting(string Key, string Value, string Description);
 /// <summary>P4a: PUT /api/appsettings/{key} のリクエストボディ。</summary>
 public record AppSettingUpdate(string Value);
 
+/// <summary>P4b: PATCH /api/alerts/{id}/status のリクエストボディ。</summary>
+public record AlertStatusUpdate(string Status);
+
+/// <summary>P4b: PATCH /api/incidents/{id}/status のリクエストボディ。</summary>
+public record IncidentStatusUpdate(string Status);
+
 /// <summary>設定一括取得（/api/settings の返値）。</summary>
 public record SettingsData(
     IReadOnlyList<MonitoredFolder> Folders,
