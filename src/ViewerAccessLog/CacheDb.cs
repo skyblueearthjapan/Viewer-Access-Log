@@ -45,6 +45,7 @@ internal static class CacheDb
             CREATE INDEX IF NOT EXISTS idx_ar_time   ON access_rows(time);
             CREATE INDEX IF NOT EXISTS idx_ar_user   ON access_rows(user);
             CREATE INDEX IF NOT EXISTS idx_ar_source ON access_rows(source);
+            CREATE INDEX IF NOT EXISTS idx_ar_dept   ON access_rows(dept);
 
             CREATE TABLE IF NOT EXISTS sync_state (
                 source    TEXT PRIMARY KEY,
@@ -145,7 +146,8 @@ internal static class CacheDb
         {
             pSrc.Value  = source;
             pSid.Value  = sid;
-            pT.Value    = row.Time.ToString("o");
+            // UTC の固定幅 'yyyy-MM-dd HH:mm:ss' で保存（文字列比較が時系列順＝範囲WHERE/並び替えが正しくなる）。
+            pT.Value    = row.Time.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss");
             pU.Value    = row.User;
             pDept.Value = row.Dept;
             pAct.Value  = row.Action;

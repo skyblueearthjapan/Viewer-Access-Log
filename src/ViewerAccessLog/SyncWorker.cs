@@ -101,7 +101,7 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
             return;
         }
 
-        using var pg    = new AuditPgReader(opts.AuditPg.ConnectionString, opts.AuditPg.Schema, opts.Dept);
+        using var pg    = new AuditPgReader(opts.AuditPg.ConnectionString, opts.AuditPg.Schema);
         using var cache = CacheDb.Open(opts.CachePath);
 
         // 初回も増分も常に event_time の窓を now から過去へ刻んで索引で走査する。

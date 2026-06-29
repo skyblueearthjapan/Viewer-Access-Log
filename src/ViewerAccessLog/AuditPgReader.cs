@@ -11,20 +11,18 @@ public sealed class AuditPgReader : IDisposable
 {
     private readonly NpgsqlDataSource _ds;
     private readonly string           _schema;
-    private readonly string           _dept;
 
-    public AuditPgReader(string connStr, string schema, string dept)
+    public AuditPgReader(string connStr, string schema)
     {
         _ds     = NpgsqlDataSource.Create(connStr);
         _schema = schema;
-        _dept   = dept;
     }
 
     // ---- アクセス行（Direct / Unknown）増分取得 ----------------------------
 
     /// <summary>
-    /// 🟥 Direct: 実ユーザーによる直接ファイル読取を増分取得する。
-    /// id &gt; lastId かつ、サービスアカウント・MTSV$ を除外。
+    /// 🟥 Direct: 実ユーザーによる直接ファイル読取を増分取得する（全部署対象）。
+    /// サービスアカウント・MTSV$ を除外。
     /// since が指定された場合はさらに event_time で下限を設ける（初回 LookbackDays 絞り込み用）。
     /// </summary>
     public async Task<IReadOnlyList<(long SrcId, AccessRow Row)>> ReadDirectRowsAsync(
@@ -33,6 +31,7 @@ public sealed class AuditPgReader : IDisposable
     {
         // bulk=初回: event_time の窓(@since〜@until)で索引(ix_audit_event_time)を使い、その窓内のみ走査。
         // 非bulk=増分: id > lastId の少量を id順で取得。
+        // 部署フィルタは廃止（D:\Data 配下＋MTSV領域の全フォルダを対象とする）。
         var sql = bulk
             ? $"""
                 SELECT id, event_time, server_name, user_name,
@@ -40,7 +39,6 @@ public sealed class AuditPgReader : IDisposable
                        process_name, host(source_ip) AS source_ip
                 FROM {_schema}.audit_logs
                 WHERE event_time >= @since AND event_time < @until   -- 時間窓=索引が効く
-                  AND file_path ILIKE @deptLike
                   AND user_name IS NOT NULL
                   AND user_name !~* 'MTSV\$'
                   AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
@@ -54,7 +52,6 @@ public sealed class AuditPgReader : IDisposable
                        process_name, host(source_ip) AS source_ip
                 FROM {_schema}.audit_logs
                 WHERE id > @lastId
-                  AND folder_path ~* @deptPattern
                   AND user_name IS NOT NULL
                   AND user_name !~* 'MTSV\$'
                   AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
@@ -68,12 +65,13 @@ public sealed class AuditPgReader : IDisposable
     }
 
     /// <summary>
-    /// ⬜ Unknown: サービス/NULL ユーザーによるアクセス（MTSV$ は除外・ビューアー二重計上防止）。
+    /// ⬜ Unknown: サービス/NULL ユーザーによるアクセス（MTSV$ は除外・ビューアー二重計上防止）。全部署対象。
     /// </summary>
     public async Task<IReadOnlyList<(long SrcId, AccessRow Row)>> ReadUnknownRowsAsync(
         long lastId, DateTimeOffset? since = null, int batch = 500, bool bulk = false,
         DateTimeOffset? until = null, CancellationToken ct = default)
     {
+        // 部署フィルタは廃止（全フォルダを対象）。user_name の判定は現状を踏襲。
         var sql = bulk
             ? $"""
                 SELECT id, event_time, server_name, user_name,
@@ -81,7 +79,6 @@ public sealed class AuditPgReader : IDisposable
                        process_name, host(source_ip) AS source_ip
                 FROM {_schema}.audit_logs
                 WHERE event_time >= @since AND event_time < @until
-                  AND file_path ILIKE @deptLike
                   AND (user_name IS NULL OR user_name ~* 'svc[-_]')
                   AND user_name !~* 'MTSV\$'
                   AND is_content_read = TRUE
@@ -94,7 +91,6 @@ public sealed class AuditPgReader : IDisposable
                        process_name, host(source_ip) AS source_ip
                 FROM {_schema}.audit_logs
                 WHERE id > @lastId
-                  AND folder_path ~* @deptPattern
                   AND (user_name IS NULL OR user_name ~* 'svc[-_]')
                   AND user_name !~* 'MTSV\$'
                   AND is_content_read = TRUE
@@ -115,8 +111,6 @@ public sealed class AuditPgReader : IDisposable
         await using var cmd  = new NpgsqlCommand(sql, conn);
         cmd.CommandTimeout = 120;
         cmd.Parameters.AddWithValue("@lastId",      lastId);
-        cmd.Parameters.AddWithValue("@deptPattern", DeptPattern(_dept));
-        cmd.Parameters.AddWithValue("@deptLike",    "%" + _dept + "%");
         cmd.Parameters.AddWithValue("@batch",       batch);
         if (since.HasValue)
             cmd.Parameters.AddWithValue("@since", since.Value);
@@ -352,8 +346,8 @@ public sealed class AuditPgReader : IDisposable
 
     // ---- 内部ヘルパー -------------------------------------------------------
 
-    /// <summary>部署名からフォルダパス一致正規表現パターンを生成する（Npgsql パラメータで安全に渡す）。</summary>
-    private static string DeptPattern(string dept) => $"[\\/]{dept}([\\/]|$)";
+    /// <summary>共有ルート。Data\ を優先し、無ければ MTlock関連\ を見る。</summary>
+    private static readonly string[] ShareRoots = { "Data\\", "MTlock関連\\" };
 
     /// <summary>'LINEWORKS-NET\taro' → 'taro'（小文字化なし、グルーピングはサービス側で）</summary>
     private static string StripDomain(string raw)
@@ -372,27 +366,40 @@ public sealed class AuditPgReader : IDisposable
         };
 
     /// <summary>
-    /// 'D:\Data\技術部\電気設計\resource.xlsx' または '\\sv\Data\技術部\…'
-    /// → 'Data\' 以降の論理パス '技術部\電気設計\resource.xlsx'
+    /// 'D:\Data\技術部\電気設計\resource.xlsx' / '\\sv\Data\技術部\…' / 'D:\MTlock関連\技術部\…'
+    /// → 共有ルート(Data または MTlock関連)以降の論理パス '技術部\電気設計\resource.xlsx'。
+    /// どちらの共有ルートも見つからない場合は正規化したフルパスをそのまま返す。
     /// </summary>
     private static string? NormPath(string? path)
     {
         if (string.IsNullOrEmpty(path)) return null;
         var norm = path.Replace('/', '\\');
-        var idx  = norm.IndexOf("Data\\", StringComparison.OrdinalIgnoreCase);
-        return idx >= 0 ? norm[(idx + 5)..] : norm;
+        foreach (var root in ShareRoots)
+        {
+            var idx = norm.IndexOf(root, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0) return norm[(idx + root.Length)..];
+        }
+        return norm;
     }
 
-    /// <summary>'D:\Data\技術部\…' からパス直下の部署名セグメントを抽出する。</summary>
+    /// <summary>
+    /// 共有ルート直下の最初のセグメントを部署名として抽出する。
+    /// 'D:\Data\技術部\機械設計\…'→技術部 / 'D:\MTlock関連\技術部\…'→技術部 / どちらも無ければ '(不明)'。
+    /// </summary>
     private static string ExtractDept(string? path)
     {
         if (string.IsNullOrEmpty(path)) return "(不明)";
         var norm = path.Replace('/', '\\');
-        var idx  = norm.IndexOf("Data\\", StringComparison.OrdinalIgnoreCase);
-        if (idx < 0) return "(不明)";
-        var rest  = norm[(idx + 5)..];
-        var slash = rest.IndexOf('\\');
-        return slash >= 0 ? rest[..slash] : rest;
+        foreach (var root in ShareRoots)
+        {
+            var idx = norm.IndexOf(root, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) continue;
+            var rest  = norm[(idx + root.Length)..];
+            var slash = rest.IndexOf('\\');
+            var seg   = slash >= 0 ? rest[..slash] : rest;
+            if (!string.IsNullOrWhiteSpace(seg)) return seg;
+        }
+        return "(不明)";
     }
 
     public void Dispose() => _ds.Dispose();

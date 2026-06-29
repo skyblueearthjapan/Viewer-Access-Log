@@ -6,8 +6,15 @@ namespace ViewerAccessLog;
 /// </summary>
 public sealed class LogService(ILogSource source)
 {
+    // Live（cache.db）時は SQL pushdown 経路へ委譲し全行をメモリに載せない。
+    // それ以外（Sample）は従来の LINQ 経路（source.All()）のまま。
+    private bool IsLive => source.DataMode == "Live" && source is CacheLogSource;
+    private CacheLogSource Cache => (CacheLogSource)source;
+
     public LogPage Search(LogQuery q)
     {
+        if (IsLive) return Cache.SearchSql(q);
+
         var filtered = Filtered(q, applySourceKind: true).ToList();
 
         // ソート列とソート方向。既定は日時降順。
@@ -28,6 +35,8 @@ public sealed class LogService(ILogSource source)
     /// <summary>CSV用：ページングなし全件取得（上限 50000 行）。</summary>
     public IReadOnlyList<AccessRow> SearchAll(LogQuery q)
     {
+        if (IsLive) return Cache.SearchAllSql(q);
+
         var filtered = Filtered(q, applySourceKind: true).ToList();
         return (q.Sort?.ToLowerInvariant() switch
         {
@@ -41,6 +50,8 @@ public sealed class LogService(ILogSource source)
     /// <summary>KPI集計。期間/ユーザー/検索語は効かせるが、ソース・操作トグルは無視して全体像を出す。</summary>
     public Summary Summarize(LogQuery q)
     {
+        if (IsLive) return Cache.SummarizeSql(q);
+
         var inRange = Filtered(q, applySourceKind: false).ToList();
 
         long viewer = inRange.Count(r => r.Source == SourceKind.Viewer);
@@ -78,6 +89,8 @@ public sealed class LogService(ILogSource source)
     /// <summary>ダッシュボード：KPI＋時間帯別スタック＋直接Topユーザー＋部署別件数＋直近インシデント。</summary>
     public DashboardData Dashboard(LogQuery q)
     {
+        if (IsLive) return Cache.DashboardSql(q);
+
         var summary = Summarize(q);
         var inRange = Filtered(q, applySourceKind: false).ToList();
 
@@ -118,6 +131,8 @@ public sealed class LogService(ILogSource source)
     /// <summary>ユーザー別一覧（青/赤/灰件数・最終アクセス）。部署は最頻出フォルダ部署で代表させる。</summary>
     public IReadOnlyList<UserRow> Users(LogQuery q)
     {
+        if (IsLive) return Cache.UsersSql(q);
+
         return Filtered(q, applySourceKind: false)
             .GroupBy(r => r.User)
             .Select(g => new UserRow(
@@ -134,6 +149,8 @@ public sealed class LogService(ILogSource source)
     /// <summary>ユーザー詳細（時系列タイムライン＋ソース別サマリ＋時間帯別＋操作種別内訳）。</summary>
     public UserDetail? UserDetail(string name, LogQuery q)
     {
+        if (IsLive) return Cache.UserDetailSql(name, q);
+
         var rows = Filtered(q, applySourceKind: false)
             .Where(r => r.User.Equals(name, StringComparison.OrdinalIgnoreCase))
             .OrderBy(r => r.Time)
@@ -171,6 +188,18 @@ public sealed class LogService(ILogSource source)
 
     public object Filters()
     {
+        if (IsLive)
+        {
+            var (users, depts) = Cache.FiltersSql();
+            return new
+            {
+                users,
+                depts,
+                sources = new[] { "viewer", "direct", "unknown" },
+                kinds = Enum.GetNames<ActionKind>().Select(s => s.ToLowerInvariant()).ToArray(),
+            };
+        }
+
         var all = source.All();
         return new
         {
@@ -219,8 +248,8 @@ public sealed class LogService(ILogSource source)
         return rows;
     }
 
-    /// <summary>操作種別の日本語ラベル（内訳の表示用）。</summary>
-    private static string KindLabel(ActionKind k) => k switch
+    /// <summary>操作種別の日本語ラベル（内訳の表示用）。Live 経路（CacheLogSource）からも利用。</summary>
+    internal static string KindLabel(ActionKind k) => k switch
     {
         ActionKind.Read => "閲覧/読取",
         ActionKind.Write => "編集",
@@ -234,7 +263,7 @@ public sealed class LogService(ILogSource source)
     private static bool InGap(DateTimeOffset t, IReadOnlyList<GapWindow> gaps)
         => gaps.Any(g => t >= g.Start && t < g.End);
 
-    private static int GapMinutesInRange(LogQuery q, IReadOnlyList<GapWindow> gaps)
+    internal static int GapMinutesInRange(LogQuery q, IReadOnlyList<GapWindow> gaps)
     {
         var from = q.From ?? DateTimeOffset.MinValue;
         var to = q.To ?? DateTimeOffset.MaxValue;
