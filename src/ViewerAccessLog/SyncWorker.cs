@@ -103,32 +103,41 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
         using var pg    = new AuditPgReader(opts.AuditPg.ConnectionString, opts.AuditPg.Schema, opts.Dept);
         using var cache = CacheDb.Open(opts.CachePath);
 
-        var since = isInitial
-            ? DateTimeOffset.UtcNow.AddDays(-opts.LookbackDays)
-            : (DateTimeOffset?)null;   // 増分は id のみで管理
-
-        // 初回(lastId=0)は trigram索引を使う bulk 取得、以降は id 増分のバッチ取得。
+        // 初回(lastId=0)は event_time の窓を now から過去へ刻んで索引で走査(seqスキャン回避)。
+        // 以降は id 増分のバッチ取得(軽い)。
         async Task<int> SyncStreamAsync(
             string key,
-            Func<long, DateTimeOffset?, bool, Task<IReadOnlyList<(long SrcId, AccessRow Row)>>> read)
+            Func<long, DateTimeOffset?, DateTimeOffset?, bool, Task<IReadOnlyList<(long SrcId, AccessRow Row)>>> read)
         {
             var lastId = CacheDb.GetLastId(cache, key);
             int total = 0;
             if (isInitial && lastId == 0)
             {
-                var rows = await read(0, since, true);   // bulk
-                if (rows.Count > 0)
+                var floor  = DateTimeOffset.UtcNow.AddDays(-opts.LookbackDays);
+                var window = TimeSpan.FromHours(2);
+                var until  = DateTimeOffset.UtcNow;
+                long maxId = 0;
+                while (until > floor && !ct.IsCancellationRequested)
                 {
-                    CacheDb.UpsertRows(cache, key, rows.Select(x => (x.SrcId, x.Row)));
-                    CacheDb.SetLastId(cache, key, rows.Max(x => x.SrcId));
-                    total = rows.Count;
+                    var from = until - window;
+                    if (from < floor) from = floor;
+                    var rows = await read(0, from, until, true);   // 窓取得(索引)
+                    if (rows.Count > 0)
+                    {
+                        CacheDb.UpsertRows(cache, key, rows.Select(x => (x.SrcId, x.Row)));
+                        var m = rows.Max(x => x.SrcId);
+                        if (m > maxId) maxId = m;
+                        total += rows.Count;
+                    }
+                    until = from;
                 }
+                if (maxId > 0) CacheDb.SetLastId(cache, key, maxId);
             }
             else
             {
                 while (true)
                 {
-                    var rows = await read(lastId, null, false);   // incremental
+                    var rows = await read(lastId, null, null, false);   // incremental
                     if (rows.Count == 0) break;
                     CacheDb.UpsertRows(cache, key, rows.Select(x => (x.SrcId, x.Row)));
                     lastId = rows.Max(x => x.SrcId);
@@ -140,8 +149,8 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
             return total;
         }
 
-        int directTotal  = await SyncStreamAsync("direct",  (l, s, b) => pg.ReadDirectRowsAsync(l, s, bulk: b, ct: ct));
-        int unknownTotal = await SyncStreamAsync("unknown", (l, s, b) => pg.ReadUnknownRowsAsync(l, s, bulk: b, ct: ct));
+        int directTotal  = await SyncStreamAsync("direct",  (l, s, u, b) => pg.ReadDirectRowsAsync(l, s, bulk: b, until: u, ct: ct));
+        int unknownTotal = await SyncStreamAsync("unknown", (l, s, u, b) => pg.ReadUnknownRowsAsync(l, s, bulk: b, until: u, ct: ct));
 
         if (directTotal + unknownTotal > 0)
             logger.LogInformation("Audit sync: Direct+{D} Unknown+{U}", directTotal, unknownTotal);

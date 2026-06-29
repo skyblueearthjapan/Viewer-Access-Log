@@ -28,9 +28,10 @@ public sealed class AuditPgReader : IDisposable
     /// since が指定された場合はさらに event_time で下限を設ける（初回 LookbackDays 絞り込み用）。
     /// </summary>
     public async Task<IReadOnlyList<(long SrcId, AccessRow Row)>> ReadDirectRowsAsync(
-        long lastId, DateTimeOffset? since = null, int batch = 500, bool bulk = false, CancellationToken ct = default)
+        long lastId, DateTimeOffset? since = null, int batch = 500, bool bulk = false,
+        DateTimeOffset? until = null, CancellationToken ct = default)
     {
-        // bulk=初回: id順を付けず file_path ILIKE で trigram索引(ix_audit_filepath_trgm)を使わせ一括取得（高速）。
+        // bulk=初回: event_time の窓(@since〜@until)で索引(ix_audit_event_time)を使い、その窓内のみ走査。
         // 非bulk=増分: id > lastId の少量を id順で取得。
         var sql = bulk
             ? $"""
@@ -38,14 +39,13 @@ public sealed class AuditPgReader : IDisposable
                        action::text, file_path, folder_path, file_name,
                        process_name, host(source_ip) AS source_ip
                 FROM {_schema}.audit_logs
-                WHERE file_path ILIKE @deptLike
-                  AND folder_path ~* @deptPattern
+                WHERE event_time >= @since AND event_time < @until   -- 時間窓=索引が効く
+                  AND file_path ILIKE @deptLike
                   AND user_name IS NOT NULL
                   AND user_name !~* 'MTSV\$'
                   AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
                   AND is_content_read = TRUE
                   AND result::text = 'Success'
-                  AND event_time >= @since
                 LIMIT 200000
                 """
             : $"""
@@ -64,14 +64,15 @@ public sealed class AuditPgReader : IDisposable
                 LIMIT @batch
                 """;
 
-        return await FetchAuditRowsAsync(sql, SourceKind.Direct, lastId, since, batch, ct);
+        return await FetchAuditRowsAsync(sql, SourceKind.Direct, lastId, since, batch, ct, until);
     }
 
     /// <summary>
     /// ⬜ Unknown: サービス/NULL ユーザーによるアクセス（MTSV$ は除外・ビューアー二重計上防止）。
     /// </summary>
     public async Task<IReadOnlyList<(long SrcId, AccessRow Row)>> ReadUnknownRowsAsync(
-        long lastId, DateTimeOffset? since = null, int batch = 500, bool bulk = false, CancellationToken ct = default)
+        long lastId, DateTimeOffset? since = null, int batch = 500, bool bulk = false,
+        DateTimeOffset? until = null, CancellationToken ct = default)
     {
         var sql = bulk
             ? $"""
@@ -79,13 +80,12 @@ public sealed class AuditPgReader : IDisposable
                        action::text, file_path, folder_path, file_name,
                        process_name, host(source_ip) AS source_ip
                 FROM {_schema}.audit_logs
-                WHERE file_path ILIKE @deptLike
-                  AND folder_path ~* @deptPattern
+                WHERE event_time >= @since AND event_time < @until
+                  AND file_path ILIKE @deptLike
                   AND (user_name IS NULL OR user_name ~* 'svc[-_]')
                   AND user_name !~* 'MTSV\$'
                   AND is_content_read = TRUE
                   AND result::text = 'Success'
-                  AND event_time >= @since
                 LIMIT 200000
                 """
             : $"""
@@ -103,22 +103,25 @@ public sealed class AuditPgReader : IDisposable
                 LIMIT @batch
                 """;
 
-        return await FetchAuditRowsAsync(sql, SourceKind.Unknown, lastId, since, batch, ct);
+        return await FetchAuditRowsAsync(sql, SourceKind.Unknown, lastId, since, batch, ct, until);
     }
 
     private async Task<IReadOnlyList<(long SrcId, AccessRow Row)>> FetchAuditRowsAsync(
-        string sql, SourceKind source, long lastId, DateTimeOffset? since, int batch, CancellationToken ct)
+        string sql, SourceKind source, long lastId, DateTimeOffset? since, int batch, CancellationToken ct,
+        DateTimeOffset? until = null)
     {
         var results = new List<(long, AccessRow)>();
         await using var conn = await _ds.OpenConnectionAsync(ct);
         await using var cmd  = new NpgsqlCommand(sql, conn);
-        cmd.CommandTimeout = 180;   // 初回はフルスキャンになり得るため余裕を持たせる(増分は軽い)
+        cmd.CommandTimeout = 120;
         cmd.Parameters.AddWithValue("@lastId",      lastId);
         cmd.Parameters.AddWithValue("@deptPattern", DeptPattern(_dept));
         cmd.Parameters.AddWithValue("@deptLike",    "%" + _dept + "%");
         cmd.Parameters.AddWithValue("@batch",       batch);
         if (since.HasValue)
             cmd.Parameters.AddWithValue("@since", since.Value);
+        if (until.HasValue)
+            cmd.Parameters.AddWithValue("@until", until.Value);
 
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
