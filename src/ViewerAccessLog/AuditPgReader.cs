@@ -36,7 +36,8 @@ public sealed class AuditPgReader : IDisposable
                    process_name, host(source_ip) AS source_ip
             FROM {_schema}.audit_logs
             WHERE id > @lastId
-              AND folder_path ~* @deptPattern
+              AND file_path ILIKE @deptLike          -- trigram索引(ix_audit_filepath_trgm)で高速プレフィルタ
+              AND folder_path ~* @deptPattern         -- 正規表現で精密化(小さな候補集合に対して)
               AND user_name IS NOT NULL
               AND user_name !~* 'MTSV\$'
               AND user_name !~* '(NETWORK SERVICE|LOCAL SYSTEM|^SYSTEM$|svc[-_])'
@@ -62,6 +63,7 @@ public sealed class AuditPgReader : IDisposable
                    process_name, host(source_ip) AS source_ip
             FROM {_schema}.audit_logs
             WHERE id > @lastId
+              AND file_path ILIKE @deptLike
               AND folder_path ~* @deptPattern
               AND (user_name IS NULL OR user_name ~* 'svc[-_]')
               AND user_name !~* 'MTSV\$'
@@ -81,8 +83,10 @@ public sealed class AuditPgReader : IDisposable
         var results = new List<(long, AccessRow)>();
         await using var conn = await _ds.OpenConnectionAsync(ct);
         await using var cmd  = new NpgsqlCommand(sql, conn);
+        cmd.CommandTimeout = 180;   // 初回はフルスキャンになり得るため余裕を持たせる(増分は軽い)
         cmd.Parameters.AddWithValue("@lastId",      lastId);
         cmd.Parameters.AddWithValue("@deptPattern", DeptPattern(_dept));
+        cmd.Parameters.AddWithValue("@deptLike",    "%" + _dept + "%");
         cmd.Parameters.AddWithValue("@batch",       batch);
         if (since.HasValue)
             cmd.Parameters.AddWithValue("@since", since.Value);
@@ -135,8 +139,8 @@ public sealed class AuditPgReader : IDisposable
         {
             await using var conn = await _ds.OpenConnectionAsync(ct);
             await using var cmd  = new NpgsqlCommand(
-                $"SELECT id, fired_at, severity, rule_name, user_name, match_count, status " +
-                $"FROM {_schema}.alert_histories ORDER BY fired_at DESC LIMIT 100", conn);
+                $"SELECT id, triggered_at, severity::text, rule_name, user_name, matched_count, status::text " +
+                $"FROM {_schema}.alert_histories ORDER BY triggered_at DESC LIMIT 100", conn);
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
                 list.Add(new AlertItem(
@@ -145,7 +149,7 @@ public sealed class AuditPgReader : IDisposable
                     r.IsDBNull(2) ? "Medium"  : r.GetString(2),
                     r.IsDBNull(3) ? "(不明)"  : r.GetString(3),
                     r.IsDBNull(4) ? ""        : r.GetString(4),
-                    r.IsDBNull(5) ? 0L        : r.GetInt64(5),
+                    r.IsDBNull(5) ? 0L        : Convert.ToInt64(r.GetValue(5)),
                     r.IsDBNull(6) ? "New"     : r.GetString(6)));
         }
         catch { /* テーブルが存在しない場合など — ログは呼び出し元で */ }
@@ -160,7 +164,7 @@ public sealed class AuditPgReader : IDisposable
         {
             await using var conn = await _ds.OpenConnectionAsync(ct);
             await using var cmd  = new NpgsqlCommand(
-                $"SELECT id, detected_at, incident_type, severity, user_name, match_count, metric, status " +
+                $"SELECT id, detected_at, detection_type::text, severity::text, user_name, matched_count, metrics::text, status::text " +
                 $"FROM {_schema}.detected_incidents ORDER BY detected_at DESC LIMIT 100", conn);
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
@@ -170,7 +174,7 @@ public sealed class AuditPgReader : IDisposable
                     r.IsDBNull(2) ? "UNKNOWN"  : r.GetString(2),
                     r.IsDBNull(3) ? "Medium"   : r.GetString(3),
                     r.IsDBNull(4) ? ""         : r.GetString(4),
-                    r.IsDBNull(5) ? 0L         : r.GetInt64(5),
+                    r.IsDBNull(5) ? 0L         : Convert.ToInt64(r.GetValue(5)),
                     r.IsDBNull(6) ? ""         : r.GetString(6),
                     r.IsDBNull(7) ? "Open"     : r.GetString(7)));
         }
@@ -186,16 +190,21 @@ public sealed class AuditPgReader : IDisposable
         {
             await using var conn = await _ds.OpenConnectionAsync(ct);
             await using var cmd  = new NpgsqlCommand(
-                $"SELECT server_name, channel, last_event_at, lag_seconds, status " +
+                $"SELECT server_name, channel, last_event_time, last_status " +
                 $"FROM {_schema}.collector_state", conn);
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct))
+            {
+                var lastEvt = r.IsDBNull(2) ? DateTimeOffset.MinValue : r.GetFieldValue<DateTimeOffset>(2);
+                var lag = lastEvt == DateTimeOffset.MinValue ? 0
+                          : (int)Math.Max(0, (DateTimeOffset.UtcNow - lastEvt).TotalSeconds);
                 list.Add(new CollectorState(
                     r.GetString(0),
                     r.IsDBNull(1) ? "unknown"  : r.GetString(1),
-                    r.GetFieldValue<DateTimeOffset>(2),
-                    r.IsDBNull(3) ? 0          : r.GetInt32(3),
-                    r.IsDBNull(4) ? "Unknown"  : r.GetString(4)));
+                    lastEvt,
+                    lag,
+                    r.IsDBNull(3) ? "Unknown"  : r.GetString(3)));
+            }
         }
         catch { }
         return list;
@@ -208,7 +217,7 @@ public sealed class AuditPgReader : IDisposable
         {
             await using var conn = await _ds.OpenConnectionAsync(ct);
             await using var cmd  = new NpgsqlCommand(
-                $"SELECT MAX(last_event_at) FROM {_schema}.collector_state", conn);
+                $"SELECT MAX(last_event_time) FROM {_schema}.collector_state", conn);
             var val = await cmd.ExecuteScalarAsync(ct);
             return val switch
             {
