@@ -39,6 +39,7 @@ internal static class CacheDb
                 ip      TEXT,
                 success INTEGER NOT NULL DEFAULT 1,
                 note    TEXT,
+                is_open INTEGER NOT NULL DEFAULT 1,
                 UNIQUE(source, src_id)
             );
 
@@ -46,6 +47,7 @@ internal static class CacheDb
             CREATE INDEX IF NOT EXISTS idx_ar_user   ON access_rows(user);
             CREATE INDEX IF NOT EXISTS idx_ar_source ON access_rows(source);
             CREATE INDEX IF NOT EXISTS idx_ar_dept   ON access_rows(dept);
+            CREATE INDEX IF NOT EXISTS idx_ar_isopen ON access_rows(is_open);
 
             CREATE TABLE IF NOT EXISTS sync_state (
                 source    TEXT PRIMARY KEY,
@@ -116,48 +118,50 @@ internal static class CacheDb
     /// ON CONFLICT(source,src_id) DO NOTHING = 既存行は上書きしない（冪等）。
     /// </summary>
     public static void UpsertRows(SqliteConnection conn, string source,
-        IEnumerable<(long SrcId, AccessRow Row)> rows)
+        IEnumerable<(long SrcId, AccessRow Row, int IsOpen)> rows)
     {
         using var tx  = conn.BeginTransaction();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO access_rows(source,src_id,time,user,dept,action,kind,file,folder,pc,ip,success,note)
-            VALUES($src,$sid,$t,$u,$dept,$act,$kind,$f,$dir,$pc,$ip,$ok,$note)
+            INSERT INTO access_rows(source,src_id,time,user,dept,action,kind,file,folder,pc,ip,success,note,is_open)
+            VALUES($src,$sid,$t,$u,$dept,$act,$kind,$f,$dir,$pc,$ip,$ok,$note,$isopen)
             ON CONFLICT(source,src_id) DO NOTHING
             """;
 
         // パラメータを一度だけ追加し、ループ内で値だけ差し替えてバッチ実行する。
-        var pSrc  = cmd.Parameters.Add("$src",  SqliteType.Text);
-        var pSid  = cmd.Parameters.Add("$sid",  SqliteType.Integer);
-        var pT    = cmd.Parameters.Add("$t",    SqliteType.Text);
-        var pU    = cmd.Parameters.Add("$u",    SqliteType.Text);
-        var pDept = cmd.Parameters.Add("$dept", SqliteType.Text);
-        var pAct  = cmd.Parameters.Add("$act",  SqliteType.Text);
-        var pKind = cmd.Parameters.Add("$kind", SqliteType.Text);
-        var pF    = cmd.Parameters.Add("$f",    SqliteType.Text);
-        var pDir  = cmd.Parameters.Add("$dir",  SqliteType.Text);
-        var pPc   = cmd.Parameters.Add("$pc",   SqliteType.Text);
-        var pIp   = cmd.Parameters.Add("$ip",   SqliteType.Text);
-        var pOk   = cmd.Parameters.Add("$ok",   SqliteType.Integer);
-        var pNote = cmd.Parameters.Add("$note", SqliteType.Text);
+        var pSrc    = cmd.Parameters.Add("$src",    SqliteType.Text);
+        var pSid    = cmd.Parameters.Add("$sid",    SqliteType.Integer);
+        var pT      = cmd.Parameters.Add("$t",      SqliteType.Text);
+        var pU      = cmd.Parameters.Add("$u",      SqliteType.Text);
+        var pDept   = cmd.Parameters.Add("$dept",   SqliteType.Text);
+        var pAct    = cmd.Parameters.Add("$act",    SqliteType.Text);
+        var pKind   = cmd.Parameters.Add("$kind",   SqliteType.Text);
+        var pF      = cmd.Parameters.Add("$f",      SqliteType.Text);
+        var pDir    = cmd.Parameters.Add("$dir",    SqliteType.Text);
+        var pPc     = cmd.Parameters.Add("$pc",     SqliteType.Text);
+        var pIp     = cmd.Parameters.Add("$ip",     SqliteType.Text);
+        var pOk     = cmd.Parameters.Add("$ok",     SqliteType.Integer);
+        var pNote   = cmd.Parameters.Add("$note",   SqliteType.Text);
+        var pIsOpen = cmd.Parameters.Add("$isopen", SqliteType.Integer);
 
-        foreach (var (sid, row) in rows)
+        foreach (var (sid, row, isOpen) in rows)
         {
-            pSrc.Value  = source;
-            pSid.Value  = sid;
+            pSrc.Value    = source;
+            pSid.Value    = sid;
             // UTC の固定幅 'yyyy-MM-dd HH:mm:ss' で保存（文字列比較が時系列順＝範囲WHERE/並び替えが正しくなる）。
-            pT.Value    = row.Time.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss");
-            pU.Value    = row.User;
-            pDept.Value = row.Dept;
-            pAct.Value  = row.Action;
-            pKind.Value = row.Kind.ToString().ToLowerInvariant();
-            pF.Value    = (object?)row.File   ?? DBNull.Value;
-            pDir.Value  = (object?)row.Folder ?? DBNull.Value;
-            pPc.Value   = (object?)row.Pc     ?? DBNull.Value;
-            pIp.Value   = (object?)row.Ip     ?? DBNull.Value;
-            pOk.Value   = row.Success ? 1 : 0;
-            pNote.Value = (object?)row.Note   ?? DBNull.Value;
+            pT.Value      = row.Time.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss");
+            pU.Value      = row.User;
+            pDept.Value   = row.Dept;
+            pAct.Value    = row.Action;
+            pKind.Value   = row.Kind.ToString().ToLowerInvariant();
+            pF.Value      = (object?)row.File   ?? DBNull.Value;
+            pDir.Value    = (object?)row.Folder ?? DBNull.Value;
+            pPc.Value     = (object?)row.Pc     ?? DBNull.Value;
+            pIp.Value     = (object?)row.Ip     ?? DBNull.Value;
+            pOk.Value     = row.Success ? 1 : 0;
+            pNote.Value   = (object?)row.Note   ?? DBNull.Value;
+            pIsOpen.Value = isOpen;
             cmd.ExecuteNonQuery();
         }
 

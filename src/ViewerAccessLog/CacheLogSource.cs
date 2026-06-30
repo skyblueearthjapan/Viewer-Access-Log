@@ -674,6 +674,7 @@ public sealed class CacheLogSource : ILogSource, IDisposable
         where.Append(" AND time >= @from AND time < @to");
         cmd.Parameters.AddWithValue("@from", Utc(from));
         cmd.Parameters.AddWithValue("@to",   Utc(to));
+        where.Append(" AND is_open = 1");
 
         if (!string.IsNullOrWhiteSpace(q.User))
         {

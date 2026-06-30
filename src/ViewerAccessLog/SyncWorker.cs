@@ -80,7 +80,7 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
             var rows = sfe.ReadViewerRows(lastId);
             if (rows.Count == 0) break;
 
-            CacheDb.UpsertRows(cache, "viewer", rows.Select(x => (x.SrcId, x.Row)));
+            CacheDb.UpsertRows(cache, "viewer", rows.Select(x => (x.SrcId, x.Row, 1)));
             lastId = rows.Max(x => x.SrcId);
             CacheDb.SetLastId(cache, "viewer", lastId);
             total += rows.Count;
@@ -133,7 +133,22 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
                 var rows = await read(0, from, until, true);   // event_time 窓(索引)で取得
                 if (rows.Count > 0)
                 {
-                    CacheDb.UpsertRows(cache, key, rows.Select(x => (x.SrcId, x.Row)));
+                    // バースト畳み込み: 同一ユーザーの連続アクセスで直前との間隔が
+                    // BurstCollapseSeconds 以内の行は is_open=0 とする（最初だけ is_open=1）。
+                    var threshold    = TimeSpan.FromSeconds(opts.BurstCollapseSeconds);
+                    var burstLastTime = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+                    var tagged       = rows
+                        .OrderBy(x => x.Row.User, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(x => x.Row.Time)
+                        .Select(x =>
+                        {
+                            var u = x.Row.User;
+                            int isOpen = !burstLastTime.TryGetValue(u, out var prev)
+                                         || (x.Row.Time - prev) > threshold ? 1 : 0;
+                            burstLastTime[u] = x.Row.Time;
+                            return (x.SrcId, x.Row, isOpen);
+                        });
+                    CacheDb.UpsertRows(cache, key, tagged);
                     var mId = rows.Max(x => x.SrcId);
                     if (mId > maxId) maxId = mId;
                     var mT = rows.Max(x => x.Row.Time);
