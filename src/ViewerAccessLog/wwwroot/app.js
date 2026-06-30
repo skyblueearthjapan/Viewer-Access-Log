@@ -615,7 +615,10 @@ async function userDetail(name) {
       <span class="hbval">${num(x.count)}</span>
     </div>`).join("") || `<div class="muted">データなし</div>`;
 
-  const timeline = d.timeline.map((r) => `
+  // タイムラインは最新時間順（降順）で表示する。
+  const timeline = [...d.timeline]
+    .sort((a, b) => new Date(b.time) - new Date(a.time))
+    .map((r) => `
     <div class="tl ${SRC_CLS[r.source]}">
       <span class="tl-t">${fmtTime(r.time)}</span>
       <span class="src ${r.source}">${SRC_LABEL[r.source]}</span>
