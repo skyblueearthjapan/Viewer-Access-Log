@@ -44,6 +44,19 @@ public sealed class SyncWorker(LiveOptions opts, ILogger<SyncWorker> logger) : B
         {
             SyncViewer(isInitial);
             await SyncAuditAsync(isInitial, ct);
+
+            // 同期サイクルの最後にリンク先専用ファイルを再計算する。
+            try
+            {
+                using var cache = CacheDb.Open(opts.CachePath);
+                CacheDb.RecomputeLinkTargets(cache, opts.LinkTargetMinReads, opts.LinkTargetMaxOpenRatio);
+                logger.LogDebug("RecomputeLinkTargets done");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "RecomputeLinkTargets failed (non-fatal)");
+            }
+
             logger.LogInformation("Sync done at {Now}", DateTimeOffset.UtcNow);
         }
         catch (OperationCanceledException)

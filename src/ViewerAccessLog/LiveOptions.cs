@@ -13,7 +13,9 @@ public sealed class LiveOptions
     public string          Dept                 { get; set; } = "技術部";
     public int             SyncIntervalSeconds  { get; set; } = 300;
     public int             LookbackDays         { get; set; } = 30;
-    public int             BurstCollapseSeconds { get; set; } = 3;
+    public int             BurstCollapseSeconds  { get; set; } = 3;
+    public int             LinkTargetMinReads    { get; set; } = 10;
+    public double          LinkTargetMaxOpenRatio { get; set; } = 0.15;
 
     /// <summary>viewer ロール読み取り接続が設定済か（プレースホルダー残存 = 未設定）。</summary>
     public bool IsPgConfigured =>

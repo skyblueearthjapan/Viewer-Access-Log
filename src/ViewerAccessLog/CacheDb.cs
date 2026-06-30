@@ -54,6 +54,10 @@ internal static class CacheDb
                 last_id   INTEGER NOT NULL DEFAULT 0,
                 last_time TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS file_link_targets (
+                file TEXT PRIMARY KEY
+            );
             """;
         cmd.ExecuteNonQuery();
     }
@@ -164,6 +168,37 @@ internal static class CacheDb
             pIsOpen.Value = isOpen;
             cmd.ExecuteNonQuery();
         }
+
+        tx.Commit();
+    }
+
+    /// <summary>
+    /// リンク先専用ファイルテーブルを再計算する。
+    /// source='direct' 行の中で is_open=1 の割合が maxRatio 未満かつ総読取数が minReads 以上の
+    /// ファイルを「リンク先専用」と判定し file_link_targets へ登録する。
+    /// CacheLogSource.ApplyFilters が NOT EXISTS でこのテーブルを参照することで、
+    /// 全クエリから自動的に除外される。
+    /// </summary>
+    public static void RecomputeLinkTargets(SqliteConnection conn, int minReads, double maxRatio)
+    {
+        using var tx  = conn.BeginTransaction();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+
+        cmd.CommandText = "DELETE FROM file_link_targets";
+        cmd.ExecuteNonQuery();
+
+        cmd.CommandText = """
+            INSERT INTO file_link_targets(file)
+            SELECT file FROM access_rows
+            WHERE source = 'direct' AND file IS NOT NULL AND file <> ''
+            GROUP BY file
+            HAVING COUNT(*) >= @minReads
+               AND (CAST(SUM(is_open) AS REAL) / COUNT(*)) < @maxRatio
+            """;
+        cmd.Parameters.AddWithValue("@minReads", minReads);
+        cmd.Parameters.AddWithValue("@maxRatio", maxRatio);
+        cmd.ExecuteNonQuery();
 
         tx.Commit();
     }

@@ -675,6 +675,9 @@ public sealed class CacheLogSource : ILogSource, IDisposable
         cmd.Parameters.AddWithValue("@from", Utc(from));
         cmd.Parameters.AddWithValue("@to",   Utc(to));
         where.Append(" AND is_open = 1");
+        // リンク先専用ファイル（file_link_targets）を全クエリから除外する。
+        // 全クエリは FROM access_rows を別名なしで使うので相関 "access_rows.file" は外側列を指す。
+        where.Append(" AND NOT EXISTS (SELECT 1 FROM file_link_targets t WHERE t.file = access_rows.file)");
 
         if (!string.IsNullOrWhiteSpace(q.User))
         {
